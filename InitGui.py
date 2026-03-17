@@ -17,6 +17,7 @@ class InsertDesignerCommand:
         return {
             'MenuText': 'Insert Designer',
             'ToolTip':  'Open the board game insert designer',
+            'Pixmap':   os.path.join(_dir, "icons", "insert_designer.svg"),
         }
 
     def IsActive(self):
