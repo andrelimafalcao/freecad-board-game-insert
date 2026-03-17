@@ -1,7 +1,15 @@
 import FreeCADGui
 import os
+import importlib.util
 
 _dir = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_module(name, filename):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_dir, filename))
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 class InsertDesignerCommand:
@@ -16,10 +24,9 @@ class InsertDesignerCommand:
 
     def Activated(self):
         import FreeCAD
-        macro = os.path.join(_dir, "insert_designer.py")
         try:
-            with open(macro, "r") as f:
-                exec(compile(f.read(), macro, "exec"), {"__file__": macro})
+            mod = _load_module("insert_designer", "insert_designer.py")
+            mod.main()
         except Exception as e:
             FreeCAD.Console.PrintError(f"InsertDesigner: {e}\n")
 

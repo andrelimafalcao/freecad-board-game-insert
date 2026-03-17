@@ -1896,4 +1896,5 @@ def main():
     dlg.show()
 
 
-main()
+if __name__ == "__main__":
+    main()
