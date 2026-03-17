@@ -1,9 +1,27 @@
 import FreeCADGui
 import os
-import inspect
+import sys
 import importlib.util
 
-_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+def _find_addon_dir():
+    try:
+        return os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        pass
+    try:
+        import inspect
+        return os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+    except Exception:
+        pass
+    # FreeCAD adds each mod directory to sys.path before loading it;
+    # find ours by the unique combination of files it contains.
+    for p in sys.path:
+        if (os.path.isfile(os.path.join(p, "insert_designer.py"))
+                and os.path.isfile(os.path.join(p, "board_game_insert.py"))):
+            return p
+    raise RuntimeError("InsertDesigner: could not locate addon directory")
+
+_dir = _find_addon_dir()
 
 
 def _load_module(name, filename):
