@@ -18,6 +18,9 @@ futuropia/
 # Claude Code internals
 .claude/
 
+# Root-level leftover (superseded by examples/)
+example_config.json
+
 # OS
 .DS_Store
 Thumbs.db
