@@ -2,8 +2,6 @@ import FreeCADGui
 import os
 import sys
 
-# FreeCAD adds the mod directory to sys.path, so direct imports work.
-# We also try to resolve _dir for the icon path, but non-fatally.
 def _find_addon_dir():
     try:
         return os.path.dirname(os.path.abspath(__file__))
