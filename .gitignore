@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# FreeCAD generated files
+*.FCStd
+*.FCBak
+*.stl
+*.3mf
+*.step
+*.obj
+
+# Output directories
+output/
+futuropia/
+
+# Claude Code internals
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

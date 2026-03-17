@@ -1,0 +1,109 @@
+{
+  "_comment": "Futuropia board game insert — 9-tray layout for a 365x265x17mm box. Update output_dir to your desired output folder.",
+  "document_name": "BoardGameInsert",
+  "output_dir": "./output",
+  "box_width": 365.0,
+  "box_depth": 265.0,
+  "box_height": 17.0,
+  "margin": 2.0,
+  "arrange_gap": 1.0,
+  "defaults": {
+    "wall_thickness": 2.0,
+    "floor_thickness": 1.0,
+    "div_thickness": 2.0,
+    "finger_hole": false,
+    "finger_hole_radius": 10.0,
+    "finger_notch": "None",
+    "finger_notch_width": 20.0,
+    "fillet": {
+      "external": 2.0,
+      "internal": 1.0,
+      "base": 1.5,
+      "base_type": "fillet",
+      "bottom_chamfer": 1.0
+    }
+  },
+  "layout": {
+    "split": "V",
+    "flex_weight": [1.0, 104.66, 160.34],
+    "children": [
+      {
+        "split": "H",
+        "children": [
+          {
+            "tray": {
+              "name": "Tray 1",
+              "comp_layout": {
+                "split": "H",
+                "children": [
+                  { "comp": { "width": 92.0, "depth": 47.0, "finger_hole": true, "finger_notch": "west" } },
+                  { "comp": { "depth": 47.0, "finger_hole": true, "finger_notch": "west" } },
+                  { "comp": { "depth": 47.0, "finger_hole": true, "finger_notch": "west" } }
+                ]
+              }
+            }
+          },
+          {
+            "tray": {
+              "name": "Tray 4",
+              "comp_layout": {
+                "split": "H",
+                "children": [
+                  { "comp": {} },
+                  {
+                    "split": "V",
+                    "children": [
+                      { "comp": {} },
+                      { "comp": {} }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "split": "H",
+        "children": [
+          { "tray": { "name": "Tray 2", "comp_layout": { "comp": {} } } },
+          { "tray": { "name": "Tray 5", "comp_layout": { "comp": {} } } },
+          { "tray": { "name": "Tray 6", "comp_layout": { "comp": {} } } },
+          { "tray": { "name": "Tray 7", "comp_layout": { "comp": {} } } }
+        ]
+      },
+      {
+        "split": "H",
+        "children": [
+          {
+            "tray": {
+              "name": "Tray 3",
+              "comp_layout": {
+                "split": "V",
+                "children": [
+                  { "comp": {} },
+                  { "comp": {} },
+                  { "comp": {} }
+                ]
+              }
+            }
+          },
+          { "tray": { "name": "Tray 8", "comp_layout": { "comp": {} } } },
+          {
+            "tray": {
+              "name": "Tray 9",
+              "comp_layout": {
+                "split": "V",
+                "children": [
+                  { "comp": {} },
+                  { "comp": {} },
+                  { "comp": {} }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

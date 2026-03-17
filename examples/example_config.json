@@ -1,0 +1,98 @@
+{
+  "_comment": "Board Game Insert config example. All dimensions in mm. Update output_dir to your desired output folder.",
+
+  "document_name": "MyGameInsert",
+  "output_dir": "./output",
+  "arrange_gap": 5,
+
+  "box_width":  500,
+  "box_depth":  300,
+  "box_height":  60,
+
+  "margin": 2.0,
+
+  "defaults": {
+    "wall_thickness":  2.0,
+    "floor_thickness": 1.5,
+    "div_thickness":   1.5,
+    "finger_hole": false,
+    "finger_hole_radius": 10.0,
+    "finger_notch": "None",
+    "finger_notch_width": 20.0,
+    "fillet": {
+      "external":       2.0,
+      "internal":       1.0,
+      "base":           1.0,
+      "base_type":      "fillet",
+      "bottom_chamfer": 1.0
+    }
+  },
+
+  "layout": {
+    "split": "V",
+    "_comment": "Three columns: token tray (fixed width), card tray (flexible), tile tray (flexible)",
+    "children": [
+
+      {
+        "_comment": "Token tray — fixed width from comp constraints",
+        "tray": {
+          "name": "TokenTray",
+          "comp_layout": {
+            "split": "H",
+            "_comment": "Two horizontal compartments: tokens top, cards bottom",
+            "children": [
+              {
+                "comp": {
+                  "width": 100.0,
+                  "depth": 80.0,
+                  "label": "Tokens",
+                  "finger_hole": true,
+                  "finger_hole_radius": 12.0
+                }
+              },
+              {
+                "comp": {
+                  "width": 100.0,
+                  "depth": 60.0,
+                  "label": "Small cards",
+                  "finger_notch": "south",
+                  "finger_notch_width": 30.0
+                }
+              }
+            ]
+          }
+        }
+      },
+
+      {
+        "_comment": "Card tray — flexible, fills remaining space",
+        "tray": {
+          "name": "CardTray",
+          "comp_layout": {
+            "split": "V",
+            "_comment": "Two side-by-side card slots",
+            "children": [
+              { "comp": { "label": "Deck A" } },
+              { "comp": { "label": "Deck B" } }
+            ]
+          }
+        }
+      },
+
+      {
+        "_comment": "Tile tray — flexible",
+        "tray": {
+          "name": "TileTray",
+          "comp_layout": {
+            "comp": {
+              "label": "Tiles",
+              "finger_notch": "south",
+              "finger_notch_width": 40.0
+            }
+          }
+        }
+      }
+
+    ]
+  }
+}
