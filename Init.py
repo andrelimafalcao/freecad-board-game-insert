@@ -1,0 +1,1 @@
+"""InsertDesigner FreeCAD addon"""

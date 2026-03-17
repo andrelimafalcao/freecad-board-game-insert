@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>Insert Designer</name>
+  <description>GUI wizard for designing and generating 3D-printable board game box inserts from JSON configs</description>
+  <version>1.0.0</version>
+  <date>2026-03-17</date>
+  <maintainer email="">andrelimafalcao</maintainer>
+  <license alias="MIT">MIT</license>
+  <url type="repository">https://github.com/andrelimafalcao/freecad-board-game-insert</url>
+  <content>
+    <workbench classname="InsertDesignerWorkbench">
+      <subdirectory>.</subdirectory>
+    </workbench>
+  </content>
+</package>

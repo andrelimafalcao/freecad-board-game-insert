@@ -19,17 +19,35 @@ A FreeCAD macro that generates 3D-printable box inserts for board games from a J
 
 ## Installation
 
-1. Download `board_game_insert.py` and `insert_designer.py`
-2. Place both files in the same folder (e.g. your FreeCAD macros folder)
+### Via FreeCAD Addon Manager (recommended)
 
-To find your macros folder: **Macro → Macros → ...** (the folder path is shown at the top).
+1. In FreeCAD, go to **Tools → Addon Manager**
+2. Search for **Insert Designer** and click **Install**
+3. Restart FreeCAD — an **Insert Designer** menu and toolbar button will appear
+
+### Manual install
+
+1. Clone or download this repo into your FreeCAD `Mod` folder:
+
+   ```
+   # Windows
+   %APPDATA%\FreeCAD\Mod\freecad-board-game-insert
+
+   # Linux
+   ~/.local/share/FreeCAD/Mod/freecad-board-game-insert
+
+   # macOS
+   ~/Library/Application Support/FreeCAD/Mod/freecad-board-game-insert
+   ```
+
+2. Restart FreeCAD — the **Insert Designer** workbench will be available
 
 ## Usage
 
 ### GUI Wizard (recommended)
 
 1. Open FreeCAD
-2. Go to **Macro → Macros**, select `insert_designer.py`, click **Execute**
+2. Click the **Insert Designer** toolbar button, or go to **Insert Designer → Insert Designer** in the menu
 3. Use the wizard to set box dimensions, add trays, and define compartments
 4. Click **Generate** to build the shapes and export STL files
 
@@ -124,6 +142,9 @@ See the [`examples/`](examples/) folder:
 ```
 board_game_insert.py   # geometry engine (importable or standalone)
 insert_designer.py     # PySide2 GUI wizard
+InitGui.py             # FreeCAD workbench + toolbar registration
+Init.py                # addon init
+package.xml            # Addon Manager metadata
 examples/              # sample JSON configs
 ```
 
