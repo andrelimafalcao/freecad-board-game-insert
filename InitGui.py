@@ -1,8 +1,9 @@
 import FreeCADGui
 import os
+import inspect
 import importlib.util
 
-_dir = os.path.dirname(os.path.abspath(__file__))
+_dir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
 
 def _load_module(name, filename):
