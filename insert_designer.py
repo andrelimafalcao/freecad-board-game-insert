@@ -261,9 +261,10 @@ class LayoutCanvas(QtWidgets.QWidget):
         self._hit_list      = []
         self._comp_tray_map = {}        # id(src_comp) -> tray dict
         self._dividers      = []        # [(config_split_node, child_idx, "V"|"H", split_mm)]
-        self._drag_div  = None      # (config_split_node, child_idx, "V"|"H")
+        self._drag_div      = None      # (config_split_node, child_idx, "V"|"H")
         self._drag_start_mm = 0.0
         self._tray_index    = 0
+        self._active_level  = 0        # which level is shown / edited
 
         self.setMinimumSize(300, 200)
         self.setMouseTracking(True)
@@ -357,11 +358,11 @@ class LayoutCanvas(QtWidgets.QWidget):
         self._comp_tray_map = {}
         self._tray_index    = 0
 
-        if self._gen and self.config.get("layout"):
+        if self._gen and self._level_layout():
             try:
-                layout_node = self._gen.resolve_layout(self.config)
+                layout_node = self._gen.resolve_layout(self._config_for_resolve())
                 self._draw_layout_node(p, layout_node,
-                                       self.config.get("layout"), scale, ox, oy)
+                                       self._level_layout(), scale, ox, oy)
             except Exception as e:
                 p.setPen(QtGui.QColor(255, 80, 80))
                 p.drawText(box_px, Qt.AlignCenter,
@@ -598,7 +599,7 @@ class LayoutCanvas(QtWidgets.QWidget):
             # Get current resolved sizes for this split from the layout tree
             if self._gen:
                 try:
-                    layout = self._gen.resolve_layout(self.config)
+                    layout = self._gen.resolve_layout(self._config_for_resolve())
                     # Find the matching split node in the resolved tree
                     res_node = self._find_resolved_node(layout, config_node)
                 except Exception:
@@ -683,6 +684,18 @@ class LayoutCanvas(QtWidgets.QWidget):
                 return result
         return None
 
+    def _level_layout(self):
+        """Return the active level's layout dict (falls back to root layout for old configs)."""
+        levels = self.config.get("levels", [])
+        idx    = self._active_level
+        if 0 <= idx < len(levels):
+            return levels[idx].get("layout") or {}
+        return self.config.get("layout") or {}
+
+    def _config_for_resolve(self):
+        """Return a config dict with 'layout' set to the active level's layout."""
+        return {**self.config, "layout": self._level_layout()}
+
     def refresh(self):
         self.update()
 
@@ -734,12 +747,17 @@ class InsertDesigner(QtWidgets.QDialog):
                     "bottom_chamfer": 1.0,
                 },
             },
-            "layout": {
-                "tray": {
-                    "name":        "Tray 1",
-                    "comp_layout": {"comp": {}},
+            "levels": [
+                {
+                    "height": None,   # auto: fills box_height
+                    "layout": {
+                        "tray": {
+                            "name":        "Tray 1",
+                            "comp_layout": {"comp": {}},
+                        }
+                    },
                 }
-            },
+            ],
         }
 
         self._selection       = (SEL_BOX, self.config)
@@ -748,6 +766,7 @@ class InsertDesigner(QtWidgets.QDialog):
         self._edit_snap_taken = False
 
         self._build_ui()
+        self._refresh_level_strip()
         self.canvas.set_selection(SEL_BOX, self.config)
         self.stack.setCurrentIndex(PANEL[SEL_BOX])
         self._load_box_panel()
@@ -876,7 +895,25 @@ class InsertDesigner(QtWidgets.QDialog):
         self.canvas._gen   = self._gen
         self.canvas.selection_changed.connect(self._on_selection)
         self.canvas.divider_released.connect(self._snapshot)
-        splitter.addWidget(self.canvas)
+
+        # Canvas container: canvas + level selector strip below
+        canvas_container = QtWidgets.QWidget()
+        _cv = QtWidgets.QVBoxLayout(canvas_container)
+        _cv.setContentsMargins(0, 0, 0, 0)
+        _cv.setSpacing(0)
+        _cv.addWidget(self.canvas, stretch=1)
+
+        # Level strip placeholder — built by _refresh_level_strip()
+        self._level_strip_widget = QtWidgets.QWidget()
+        self._level_strip_widget.setFixedHeight(34)
+        self._level_strip_widget.setStyleSheet(
+            "background: #1e1e2a; border-top: 1px solid #444;")
+        self._level_strip_hbox = QtWidgets.QHBoxLayout(self._level_strip_widget)
+        self._level_strip_hbox.setContentsMargins(6, 2, 6, 2)
+        self._level_strip_hbox.setSpacing(4)
+        _cv.addWidget(self._level_strip_widget)
+
+        splitter.addWidget(canvas_container)
 
         # Right side
         right_panel = QtWidgets.QWidget()
@@ -943,6 +980,14 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow("Height (Z):",   self.box_h)
         f.addRow("Margin:",       self.box_margin)
         f.addRow("Tray spacing:", self.box_gap)
+        f.addRow(_section_label("Levels  (stacked Z layers)"))
+        self.box_level_lbl   = QtWidgets.QLabel("Level 1 of 1")
+        self.box_level_lbl.setStyleSheet("color: #999; font-style: italic;")
+        self.box_level_h     = _dspin(1, 9999, step=5)
+        self.box_level_h_auto = QtWidgets.QCheckBox("Auto (fill remaining height)")
+        f.addRow("",              self.box_level_lbl)
+        f.addRow("Level height:", _hbox(self.box_level_h, self.box_level_h_auto))
+
         f.addRow(_section_label("Defaults"))
         f.addRow("Wall thickness:",  self.box_def_wall)
         f.addRow("Floor thickness:", self.box_def_floor)
@@ -981,6 +1026,9 @@ class InsertDesigner(QtWidgets.QDialog):
             lambda v: (self._cfg("margin", v), self.canvas.refresh()))
         self.box_gap.valueChanged.connect(
             lambda v: (self._cfg("tray_gap", v), self.canvas.refresh()))
+        self.box_level_h.valueChanged.connect(self._level_h_change)
+        self.box_level_h_auto.toggled.connect(self._level_h_auto_toggle)
+
         self.box_def_wall.valueChanged.connect(lambda v: self._def("wall_thickness", v))
         self.box_def_floor.valueChanged.connect(lambda v: self._def("floor_thickness", v))
         self.box_def_div.valueChanged.connect(lambda v: self._def("div_thickness", v))
@@ -1213,8 +1261,10 @@ class InsertDesigner(QtWidgets.QDialog):
         self.config.clear()
         self.config.update(cfg)
         self.canvas.config = self.config
+        self.canvas._active_level = 0
         self.canvas.set_selection(SEL_BOX, self.config)
         self._on_selection(SEL_BOX, self.config)
+        self._refresh_level_strip()
         self.canvas.refresh()
         self._refresh_tree()
 
@@ -1247,9 +1297,15 @@ class InsertDesigner(QtWidgets.QDialog):
         root_item = QtWidgets.QTreeWidgetItem(self.tree, ["Box"])
         root_item.setData(0, Qt.UserRole, (SEL_BOX, self.config))
         root_item.setExpanded(True)
-        layout = self.config.get("layout")
-        if layout:
-            self._mk_layout_item(root_item, layout)
+        levels = self.config.get("levels", [])
+        if levels:
+            for lv_idx, lv in enumerate(levels):
+                lv_item = QtWidgets.QTreeWidgetItem(root_item, [f"Level {lv_idx + 1}"])
+                lv_item.setData(0, Qt.UserRole, (SEL_BOX, self.config))
+                lv_item.setExpanded(True)
+                layout = lv.get("layout")
+                if layout:
+                    self._mk_layout_item(lv_item, layout)
         self.tree.expandAll()
         self._sync_tree_selection()
 
@@ -1337,6 +1393,7 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_h.setValue(cfg.get("box_height",  70.0))
         self.box_margin.setValue(cfg.get("margin", 2.0))
         self.box_gap.setValue(cfg.get("tray_gap", 2.0))
+        self._update_level_panel()
         defs = cfg.get("defaults", {})
         self.box_def_wall.setValue(defs.get("wall_thickness", 2.0))
         self.box_def_floor.setValue(defs.get("floor_thickness", 1.0))
@@ -1487,6 +1544,178 @@ class InsertDesigner(QtWidgets.QDialog):
             self._snapshot_if_new_edit()
             self.config.setdefault("defaults", {}).setdefault("fillet", {})[key] = val
             self.canvas.refresh()
+
+    # ── Level management ──────────────────────────────────────────────────────
+
+    def _resolve_level_heights(self):
+        """Return list of resolved float heights for all levels."""
+        levels = self.config.get("levels", [])
+        if not levels:
+            return [self.config.get("box_height", 70.0)]
+        box_h   = self.config.get("box_height", 70.0)
+        heights = [lv.get("height") for lv in levels]
+        n_flex  = sum(1 for h in heights if h is None)
+        fixed   = sum(h for h in heights if h is not None)
+        flex_h  = max(box_h - fixed, 0.0) / max(n_flex, 1)
+        return [h if h is not None else flex_h for h in heights]
+
+    def _level_layout(self):
+        """Return the active level's layout dict."""
+        return self.canvas._level_layout()
+
+    def _set_level_layout(self, v):
+        """Set the active level's layout dict."""
+        levels = self.config.get("levels", [])
+        idx    = self.canvas._active_level
+        if 0 <= idx < len(levels):
+            levels[idx]["layout"] = v
+
+    def _refresh_level_strip(self):
+        """Rebuild the level selector buttons."""
+        lay = self._level_strip_hbox
+        while lay.count():
+            item = lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        levels   = self.config.get("levels", [])
+        resolved = self._resolve_level_heights()
+        for idx, lh in enumerate(resolved):
+            lv        = levels[idx] if idx < len(levels) else {}
+            auto_lbl  = "auto" if lv.get("height") is None else f"{lh:.0f} mm"
+            btn = QtWidgets.QPushButton(f"Level {idx + 1}  ({auto_lbl})")
+            btn.setCheckable(True)
+            btn.setChecked(idx == self.canvas._active_level)
+            btn.setFixedHeight(26)
+            btn.setStyleSheet(
+                "QPushButton { padding: 2px 12px; border-radius: 3px;"
+                "  background: #3a3a4a; color: #bbb; border: 1px solid #555; }"
+                "QPushButton:checked { background: #4a5a8e; color: white;"
+                "  font-weight: bold; border: 1px solid #7a9ae0; }")
+            btn.clicked.connect(lambda _c, i=idx: self._switch_level(i))
+            lay.addWidget(btn)
+
+        lay.addStretch()
+
+        btn_add = QtWidgets.QPushButton("+")
+        btn_add.setFixedSize(26, 26)
+        btn_add.setToolTip("Add level")
+        btn_add.setStyleSheet(
+            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }")
+        btn_add.clicked.connect(self._add_level)
+        lay.addWidget(btn_add)
+
+        btn_rem = QtWidgets.QPushButton("−")
+        btn_rem.setFixedSize(26, 26)
+        btn_rem.setToolTip("Remove current level")
+        btn_rem.setEnabled(len(levels) > 1)
+        btn_rem.setStyleSheet(
+            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }"
+            "QPushButton:disabled { color: #555; }")
+        btn_rem.clicked.connect(self._remove_level)
+        lay.addWidget(btn_rem)
+
+    def _update_level_panel(self):
+        """Sync the box panel level-height fields to the currently active level."""
+        levels   = self.config.get("levels", [])
+        idx      = self.canvas._active_level
+        n        = len(levels)
+        resolved = self._resolve_level_heights()
+        self._loading = True
+        try:
+            self.box_level_lbl.setText(f"Level {idx + 1} of {n}")
+            if 0 <= idx < n:
+                lv   = levels[idx]
+                auto = lv.get("height") is None
+                self.box_level_h_auto.setChecked(auto)
+                self.box_level_h.setEnabled(not auto)
+                rh = resolved[idx] if idx < len(resolved) else 70.0
+                self.box_level_h.setValue(lv.get("height") if not auto else rh)
+        finally:
+            self._loading = False
+
+    def _switch_level(self, idx):
+        """Activate a different level: deselects current selection, refreshes canvas."""
+        if idx == self.canvas._active_level:
+            return
+        self.canvas._active_level = idx
+        self.canvas.set_selection(SEL_BOX, self.config)
+        self._on_selection(SEL_BOX, self.config)
+        self._refresh_level_strip()
+        self._update_level_panel()
+        self.canvas.refresh()
+        self._refresh_tree()
+
+    def _add_level(self):
+        self._snapshot()
+        levels = self.config.setdefault("levels", [])
+        n      = len(levels)
+        levels.append({
+            "height": None,
+            "layout": {
+                "tray": {
+                    "name":        f"Tray {self._next_tray_num()}",
+                    "comp_layout": {"comp": {}},
+                }
+            },
+        })
+        self.canvas._active_level = n   # switch to the new level
+        self._refresh_level_strip()
+        self._update_level_panel()
+        self.canvas.set_selection(SEL_BOX, self.config)
+        self._on_selection(SEL_BOX, self.config)
+        self.canvas.refresh()
+        self._refresh_tree()
+
+    def _remove_level(self):
+        levels = self.config.get("levels", [])
+        if len(levels) <= 1:
+            return
+        self._snapshot()
+        idx = self.canvas._active_level
+        levels.pop(idx)
+        self.canvas._active_level = max(0, idx - 1)
+        self._refresh_level_strip()
+        self._update_level_panel()
+        self.canvas.set_selection(SEL_BOX, self.config)
+        self._on_selection(SEL_BOX, self.config)
+        self.canvas.refresh()
+        self._refresh_tree()
+
+    def _level_h_change(self, v):
+        if self._loading:
+            return
+        levels = self.config.get("levels", [])
+        idx    = self.canvas._active_level
+        if 0 <= idx < len(levels) and not levels[idx].get("height") is None:
+            self._snapshot_if_new_edit()
+            levels[idx]["height"] = v
+            self._refresh_level_strip()
+            self.canvas.refresh()
+
+    def _level_h_auto_toggle(self, checked):
+        if self._loading:
+            return
+        levels = self.config.get("levels", [])
+        idx    = self.canvas._active_level
+        if not (0 <= idx < len(levels)):
+            return
+        self._snapshot_if_new_edit()
+        resolved = self._resolve_level_heights()
+        rh       = resolved[idx] if idx < len(resolved) else 70.0
+        if checked:
+            levels[idx].pop("height", None)
+        else:
+            levels[idx]["height"] = rh
+        self._loading = True
+        try:
+            self.box_level_h.setValue(rh)
+            self.box_level_h.setEnabled(not checked)
+        finally:
+            self._loading = False
+        self._refresh_level_strip()
+        self.canvas.refresh()
 
     def _current_tray(self):
         if self._selection and self._selection[0] == SEL_TRAY:
@@ -1762,7 +1991,7 @@ class InsertDesigner(QtWidgets.QDialog):
         if tray is None:
             comp = self._current_comp()
             if comp is not None:
-                tray = _find_tray_for_comp(self.config.get("layout", {}), comp)
+                tray = _find_tray_for_comp(self._level_layout(), comp)
         if tray is None:
             return
 
@@ -1771,7 +2000,7 @@ class InsertDesigner(QtWidgets.QDialog):
         if not ok:
             return
 
-        layout = self.config.get("layout", {})
+        layout = self._level_layout()
         result = _find_tray_parent(layout, tray)
         self._snapshot()
 
@@ -1783,7 +2012,7 @@ class InsertDesigner(QtWidgets.QDialog):
 
         if result is None:
             # The tray IS the root layout node — wrap it
-            self.config["layout"] = split_node
+            self._set_level_layout(split_node)
         else:
             parent_node, child_idx = result
             parent_node["children"][child_idx] = split_node
@@ -1796,8 +2025,9 @@ class InsertDesigner(QtWidgets.QDialog):
         self._refresh_tree()
 
     def _next_tray_num(self):
-        trays = _collect_layout_trays(self.config.get("layout", {}))
-        return len(trays) + 1
+        levels = self.config.get("levels", [])
+        total  = sum(len(_collect_layout_trays(lv.get("layout", {}))) for lv in levels)
+        return total + 1
 
     def _split_comp(self, direction):
         """Split the selected compartment into N equal sub-compartments."""
@@ -1810,7 +2040,7 @@ class InsertDesigner(QtWidgets.QDialog):
         if not ok:
             return
 
-        tray = _find_tray_for_comp(self.config.get("layout", {}), comp)
+        tray = _find_tray_for_comp(self._level_layout(), comp)
         if tray is None:
             return
 
@@ -1848,13 +2078,12 @@ class InsertDesigner(QtWidgets.QDialog):
         self._snapshot()
 
         if sel_type == SEL_TRAY:
-            layout = self.config.get("layout", {})
+            layout = self._level_layout()
             result = _find_tray_parent(layout, data)
             if result is None:
                 # Tray is the root — replace with empty flexible tray
-                self.config["layout"] = {
-                    "tray": {"name": "Tray 1", "comp_layout": {"comp": {}}}
-                }
+                self._set_level_layout(
+                    {"tray": {"name": "Tray 1", "comp_layout": {"comp": {}}}})
             else:
                 parent_node, child_idx = result
                 siblings = parent_node["children"]
@@ -1862,10 +2091,9 @@ class InsertDesigner(QtWidgets.QDialog):
                 if sibling_idx is not None:
                     # Collapse: replace parent with sibling
                     sibling = siblings[sibling_idx]
-                    grandparent = _find_tray_parent(layout, data)
                     # Replace the parent split with the sibling
                     self._replace_node_in_layout(
-                        self.config["layout"], parent_node, sibling)
+                        self._level_layout(), parent_node, sibling)
                 else:
                     # 3+ siblings: just remove this one
                     siblings.pop(child_idx)
@@ -1876,7 +2104,7 @@ class InsertDesigner(QtWidgets.QDialog):
             self._on_selection(SEL_BOX, self.config)
 
         elif sel_type == SEL_COMP:
-            tray = _find_tray_for_comp(self.config.get("layout", {}), data)
+            tray = _find_tray_for_comp(self._level_layout(), data)
             if tray is None:
                 return
             comp_layout = tray.get("comp_layout", {})
@@ -1913,9 +2141,9 @@ class InsertDesigner(QtWidgets.QDialog):
                 return True
             if self._replace_node_in_layout(child, target_node, replacement):
                 return True
-        # If target_node IS the root, replace config["layout"]
+        # If target_node IS the root, replace it via the level helper
         if layout_root is target_node:
-            self.config["layout"] = replacement
+            self._set_level_layout(replacement)
             return True
         return False
 
@@ -1969,11 +2197,17 @@ class InsertDesigner(QtWidgets.QDialog):
                 return [strip_comments(i) for i in obj]
             return obj
 
+        cleaned = strip_comments(data)
+        # Migrate old single-layout configs to levels format
+        if "layout" in cleaned and "levels" not in cleaned:
+            cleaned["levels"] = [{"height": None, "layout": cleaned.pop("layout")}]
         self.config.clear()
-        self.config.update(strip_comments(data))
+        self.config.update(cleaned)
         self.canvas.config = self.config
+        self.canvas._active_level = 0
         self.canvas.set_selection(SEL_BOX, self.config)
         self._on_selection(SEL_BOX, self.config)
+        self._refresh_level_strip()
         self.canvas.refresh()
         self._refresh_tree()
 
@@ -2019,52 +2253,59 @@ class InsertDesigner(QtWidgets.QDialog):
 
         os.makedirs(out_dir, exist_ok=True)
 
-        layout_root = self._gen.resolve_layout(cfg)
-        trays       = self._gen.collect_trays_from_layout(layout_root)
-
-        if not trays:
+        all_levels  = self._gen.resolve_all_levels(cfg)
+        multi_level = len(all_levels) > 1
+        if not any(self._gen.collect_trays_from_layout(ln) for _, _, ln in all_levels):
             QtWidgets.QMessageBox.information(
                 self, "Generate", "No trays found in layout.")
             return
 
-        doc    = FreeCAD.newDocument(doc_name)
-        errors = []
+        doc        = FreeCAD.newDocument(doc_name)
+        errors     = []
+        box_d      = cfg.get("box_depth", 250.0)
+        tray_color = 0  # global index for palette cycling
 
-        for tray_idx, (node, tray_cfg) in enumerate(trays):
-            name = tray_cfg.get("name", "Tray")
-            FreeCAD.Console.PrintMessage(f"Building '{name}'...\n")
-            self._gen.merge_defaults(tray_cfg, defaults)
+        for lv_idx, (z_off, lv_h, layout_root) in enumerate(all_levels):
+            trays     = self._gen.collect_trays_from_layout(layout_root)
+            lv_suffix = f"_L{lv_idx + 1}" if multi_level else ""
+            for node, tray_cfg in trays:
+                name = tray_cfg.get("name", "Tray") + lv_suffix
+                FreeCAD.Console.PrintMessage(
+                    f"Building '{name}' (z={z_off:.1f} mm)...\n")
+                self._gen.merge_defaults(tray_cfg, defaults)
 
-            wall_t  = tray_cfg.get("wall_thickness",
-                                    defaults.get("wall_thickness", 2.0))
-            inner_w = max(node.w - 2 * wall_t, 1.0)
-            inner_d = max(node.d - 2 * wall_t, 1.0)
-            resolved_comps = self._gen.resolve_tray_layout(
-                tray_cfg, inner_w, inner_d, defaults)
+                wall_t  = tray_cfg.get("wall_thickness",
+                                        defaults.get("wall_thickness", 2.0))
+                inner_w = max(node.w - 2 * wall_t, 1.0)
+                inner_d = max(node.d - 2 * wall_t, 1.0)
+                tray_h  = tray_cfg.get("height", lv_h)
+                resolved_comps = self._gen.resolve_tray_layout(
+                    tray_cfg, inner_w, inner_d, defaults)
 
-            try:
-                shape = self._gen.build_tray(tray_cfg, resolved_comps, box_h, defaults)
-                shape = self._gen.apply_fillets(shape, tray_cfg)
-            except Exception as e:
-                msg = f"'{name}' failed: {e}"
-                FreeCAD.Console.PrintError(f"  {msg}\n")
-                errors.append(msg)
-                continue
+                try:
+                    shape = self._gen.build_tray(
+                        tray_cfg, resolved_comps, tray_h, defaults)
+                    shape = self._gen.apply_fillets(shape, tray_cfg)
+                except Exception as e:
+                    msg = f"'{name}' failed: {e}"
+                    FreeCAD.Console.PrintError(f"  {msg}\n")
+                    errors.append(msg)
+                    continue
 
-            obj       = doc.addObject("Part::Feature", name)
-            obj.Shape = shape
-            c = _TRAY_PALETTE[tray_idx % len(_TRAY_PALETTE)]
-            obj.ViewObject.ShapeColor = (c.redF(), c.greenF(), c.blueF())
-            # Place tray to match canvas layout; flip Y so FreeCAD top view = canvas
-            box_d = cfg.get("box_depth", 250.0)
-            fx = node.x
-            fy = box_d - node.y - node.d
-            obj.Placement = FreeCAD.Placement(
-                FreeCAD.Vector(fx, fy, 0), FreeCAD.Rotation())
+                obj       = doc.addObject("Part::Feature", name)
+                obj.Shape = shape
+                c = _TRAY_PALETTE[tray_color % len(_TRAY_PALETTE)]
+                tray_color += 1
+                obj.ViewObject.ShapeColor = (c.redF(), c.greenF(), c.blueF())
+                # Flip Y so FreeCAD top view matches canvas; offset Z by level
+                fx = node.x
+                fy = box_d - node.y - node.d
+                obj.Placement = FreeCAD.Placement(
+                    FreeCAD.Vector(fx, fy, z_off), FreeCAD.Rotation())
 
-            stl_path = os.path.join(out_dir, f"{name}.stl")
-            self._gen.export_stl(shape, stl_path)
-            FreeCAD.Console.PrintMessage(f"  → STL: {stl_path}\n")
+                stl_path = os.path.join(out_dir, f"{name}.stl")
+                self._gen.export_stl(shape, stl_path)
+                FreeCAD.Console.PrintMessage(f"  → STL: {stl_path}\n")
 
         fcstd_path = os.path.join(out_dir, f"{doc_name}.FCStd")
         doc.saveAs(fcstd_path)

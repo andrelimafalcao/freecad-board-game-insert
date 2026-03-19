@@ -245,6 +245,32 @@ def collect_trays_from_layout(node):
     return result
 
 
+def resolve_all_levels(config):
+    """
+    Return list of (z_offset, level_height, layout_root) for all levels.
+    Falls back to a single level from config["layout"] for old-format configs.
+    """
+    box_h  = config.get("box_height", 70.0)
+    levels = config.get("levels")
+    if not levels:
+        layout = config.get("layout", {"tray": {"name": "Tray", "comp_layout": {"comp": {}}}})
+        return [(0.0, box_h, resolve_layout({**config, "layout": layout}))]
+
+    heights = [lv.get("height") for lv in levels]
+    n_flex  = sum(1 for h in heights if h is None)
+    fixed   = sum(h for h in heights if h is not None)
+    flex_h  = max(box_h - fixed, 0.0) / max(n_flex, 1)
+
+    result, z = [], 0.0
+    for lv, h in zip(levels, heights):
+        lh     = h if h is not None else flex_h
+        layout = lv.get("layout", {"tray": {"name": "Tray", "comp_layout": {"comp": {}}}})
+        ln     = resolve_layout({**config, "layout": layout})
+        result.append((z, lh, ln))
+        z += lh
+    return result
+
+
 # ── Tray-level comp layout resolution ─────────────────────────────────────────
 
 def _distribute_comps(children, avail, div_t, direction):
@@ -699,42 +725,48 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     doc         = FreeCAD.newDocument(doc_name)
     built_trays = []
+    all_levels  = resolve_all_levels(cfg)
+    multi_level = len(all_levels) > 1
 
-    layout_root = resolve_layout(cfg)
-    trays       = collect_trays_from_layout(layout_root)
-
-    if not trays:
+    if not any(collect_trays_from_layout(ln) for _, _, ln in all_levels):
         FreeCAD.Console.PrintMessage("No trays found in layout.\n")
         return
 
-    for node, tray_cfg in trays:
-        name = tray_cfg.get("name", "Tray")
-        FreeCAD.Console.PrintMessage(f"Building '{name}'...\n")
-        merge_defaults(tray_cfg, defaults)
+    for lv_idx, (z_off, lv_h, layout_root) in enumerate(all_levels):
+        trays = collect_trays_from_layout(layout_root)
+        lv_suffix = f"_L{lv_idx + 1}" if multi_level else ""
+        for node, tray_cfg in trays:
+            name = tray_cfg.get("name", "Tray") + lv_suffix
+            FreeCAD.Console.PrintMessage(f"Building '{name}' (z={z_off:.1f}mm)...\n")
+            merge_defaults(tray_cfg, defaults)
 
-        wall_t  = tray_cfg.get("wall_thickness", defaults.get("wall_thickness", 2.0))
-        inner_w = max(node.w - 2 * wall_t, 1.0)
-        inner_d = max(node.d - 2 * wall_t, 1.0)
-        resolved_comps = resolve_tray_layout(tray_cfg, inner_w, inner_d, defaults)
+            wall_t  = tray_cfg.get("wall_thickness", defaults.get("wall_thickness", 2.0))
+            inner_w = max(node.w - 2 * wall_t, 1.0)
+            inner_d = max(node.d - 2 * wall_t, 1.0)
+            tray_h  = tray_cfg.get("height", lv_h)
+            resolved_comps = resolve_tray_layout(tray_cfg, inner_w, inner_d, defaults)
 
-        try:
-            shape = build_tray(tray_cfg, resolved_comps, box_h, defaults)
-            shape = apply_fillets(shape, tray_cfg)
-        except Exception as e:
-            FreeCAD.Console.PrintError(f"  FAILED: {e}\n")
-            continue
+            try:
+                shape = build_tray(tray_cfg, resolved_comps, tray_h, defaults)
+                shape = apply_fillets(shape, tray_cfg)
+            except Exception as e:
+                FreeCAD.Console.PrintError(f"  FAILED: {e}\n")
+                continue
 
-        obj       = doc.addObject("Part::Feature", name)
-        obj.Shape = shape
-        tray_cfg["x_pos"] = node.x
-        tray_cfg["y_pos"] = node.y
-        built_trays.append((obj.Name, tray_cfg))
+            obj       = doc.addObject("Part::Feature", name)
+            obj.Shape = shape
+            box_d     = cfg.get("box_depth", 250.0)
+            fx        = node.x
+            fy        = box_d - node.y - node.d
+            obj.Placement = FreeCAD.Placement(
+                FreeCAD.Vector(fx, fy, z_off), FreeCAD.Rotation())
+            tray_cfg["x_pos"] = node.x
+            tray_cfg["y_pos"] = node.y
+            built_trays.append((obj.Name, tray_cfg))
 
-        stl_path = os.path.join(out_dir, f"{name}.stl")
-        export_stl(shape, stl_path)
-        FreeCAD.Console.PrintMessage(f"  → STL: {stl_path}\n")
-
-    arrange_objects(doc, built_trays, gap=0.0)
+            stl_path = os.path.join(out_dir, f"{name}.stl")
+            export_stl(shape, stl_path)
+            FreeCAD.Console.PrintMessage(f"  → STL: {stl_path}\n")
 
     fcstd_path = os.path.join(out_dir, f"{doc_name}.FCStd")
     doc.saveAs(fcstd_path)
