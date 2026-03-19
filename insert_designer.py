@@ -758,16 +758,17 @@ class InsertDesigner(QtWidgets.QDialog):
         def _icon_btn(icon_name, tooltip):
             b = QtWidgets.QToolButton()
             b.setIcon(_load_icon(icon_name))
-            b.setIconSize(QtCore.QSize(16, 16))
+            b.setIconSize(QtCore.QSize(22, 22))
             b.setToolTip(tooltip)
-            b.setFixedSize(26, 26)
+            b.setFixedSize(36, 36)
             return b
 
         def _tb_sep():
             sep = QtWidgets.QFrame()
             sep.setFrameShape(QtWidgets.QFrame.VLine)
-            sep.setFrameShadow(QtWidgets.QFrame.Sunken)
-            sep.setFixedWidth(10)
+            sep.setFrameShadow(QtWidgets.QFrame.Plain)
+            sep.setStyleSheet("color: #555;")
+            sep.setFixedSize(2, 28)
             return sep
 
         _disabled_style = (
