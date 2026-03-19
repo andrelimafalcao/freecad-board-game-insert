@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!-- back panel + tab -->
-  <path d="M 3 26 L 3 10 L 11 10 L 13 13 L 29 13 L 29 26 Z"
+  <path d="M 3 27 L 3 7 L 11 7 L 13 10 L 29 10 L 29 27 Z"
         fill="none" stroke="#cdd6f4" stroke-width="2" stroke-linejoin="round"/>
   <!-- open front flap (angled trapezoid) -->
-  <path d="M 3 26 L 6 17 L 29 17 L 29 26"
+  <path d="M 3 27 L 6 16 L 29 16 L 29 27"
         fill="none" stroke="#cdd6f4" stroke-width="2" stroke-linejoin="round"/>
 </svg>
