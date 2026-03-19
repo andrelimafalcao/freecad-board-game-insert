@@ -1,0 +1,115 @@
+{
+  "_comment": "Nidavellir insert — box inner ~240x240x70mm (external 249x249x77mm). Measure your actual box before printing.",
+  "_cards": "118 cards all 54x80mm: 87 dwarf (5 classes), 21 heroes, 5 distinctions, 5 royal offerings",
+  "_tokens": "60 gold coins (~28mm), 6 gems, 3 gem trade markers, 3 tavern signs, 5 player boards",
+
+  "document_name": "NidavellirInsert",
+  "output_dir": "./output",
+  "arrange_gap": 5.0,
+
+  "box_width":  240,
+  "box_depth":  240,
+  "box_height":  74,
+  "margin": 2.0,
+
+  "defaults": {
+    "wall_thickness":  2.0,
+    "floor_thickness": 1.5,
+    "div_thickness":   1.5,
+    "finger_hole": false,
+    "finger_hole_radius": 10.0,
+    "finger_notch": "None",
+    "finger_notch_width": 20.0,
+    "fillet": {
+      "external":       2.0,
+      "internal":       1.0,
+      "base":           1.5,
+      "base_type":      "fillet",
+      "bottom_chamfer": 1.0
+    }
+  },
+
+  "layout": {
+    "_comment": "3 rows top-to-bottom: cards (87mm) | coins+tokens (70mm) | player boards (83mm)",
+    "split": "V",
+    "_comment": "3 rows: cards (87mm) | coins full-width (65mm) | tokens + player boards (88mm)",
+    "flex_weight": [87, 65, 88],
+    "children": [
+
+      {
+        "_comment": "Row 1 — card tray spanning full width. Cards lie flat (54x80mm). 4 compartments ~58mm wide each.",
+        "tray": {
+          "name": "CardTray",
+          "height": 32,
+          "comp_layout": {
+            "split": "H",
+            "children": [
+              { "comp": { "label": "Blacksmith + Hunter", "finger_notch": "south", "finger_notch_width": 30.0 } },
+              { "comp": { "label": "Warrior + Explorer",  "finger_notch": "south", "finger_notch_width": 30.0 } },
+              { "comp": { "label": "Miner",               "finger_notch": "south", "finger_notch_width": 30.0 } },
+              { "comp": { "label": "Heroes + Distinctions + Royal Offerings", "finger_notch": "south", "finger_notch_width": 30.0 } }
+            ]
+          }
+        }
+      },
+
+      {
+        "_comment": "Row 2 — coins tray full width. 5 compartments of 42mm each (40mm coin diameter + 2mm tolerance). 12 coins per stack = 30mm height.",
+        "tray": {
+          "name": "CoinsTray",
+          "height": 32,
+          "comp_layout": {
+            "split": "H",
+            "children": [
+              { "comp": { "label": "Coins 0-3",  "width": 42.0, "finger_hole": true, "finger_hole_radius": 14.0 } },
+              { "comp": { "label": "Coins 4-6",  "width": 42.0, "finger_hole": true, "finger_hole_radius": 14.0 } },
+              { "comp": { "label": "Coins 7-10", "width": 42.0, "finger_hole": true, "finger_hole_radius": 14.0 } },
+              { "comp": { "label": "Coins 11-15","width": 42.0, "finger_hole": true, "finger_hole_radius": 14.0 } },
+              { "comp": { "label": "Coins 16+",             "finger_hole": true, "finger_hole_radius": 14.0 } }
+            ]
+          }
+        }
+      },
+
+      {
+        "_comment": "Row 3 — tokens tray and player boards side by side",
+        "split": "H",
+        "flex_weight": [110, 130],
+        "children": [
+
+          {
+            "_comment": "Tokens tray: gems, gem trade markers, tavern signs",
+            "tray": {
+              "name": "TokensTray",
+              "height": 30,
+              "comp_layout": {
+                "split": "H",
+                "children": [
+                  { "comp": { "label": "Gems x6",                         "width": 55.0, "finger_hole": true, "finger_hole_radius": 12.0 } },
+                  { "comp": { "label": "Gem Trade Markers + Tavern Signs", "finger_hole": true, "finger_hole_radius": 10.0 } }
+                ]
+              }
+            }
+          },
+
+          {
+            "_comment": "Player boards tray — adjust depth once board dimensions are known",
+            "tray": {
+              "name": "PlayerBoardsTray",
+              "height": 12,
+              "comp_layout": {
+                "comp": {
+                  "label": "Player Boards x5 (stacked flat)",
+                  "finger_notch": "south",
+                  "finger_notch_width": 50.0
+                }
+              }
+            }
+          }
+
+        ]
+      }
+
+    ]
+  }
+}
