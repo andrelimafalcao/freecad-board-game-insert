@@ -143,16 +143,17 @@ def _tray_slot_size(child_node, defs, direction):
     return None
 
 
-def _distribute(parent_node, children, avail, defs, direction):
+def _distribute(parent_node, children, avail, defs, direction, gap=0.0):
     """
     Distribute `avail` mm among `children`. Fixed children get their computed
     size; flexible children share the remainder weighted by parent_node["flex_weight"].
     Returns list of float sizes, one per child.
     """
+    n           = len(children)
     sizes       = [_tray_slot_size(c, defs, direction) for c in children]
     total_fixed = sum(s for s in sizes if s is not None)
     n_flex      = sum(1 for s in sizes if s is None)
-    remaining   = max(avail - total_fixed, 0.0)
+    remaining   = max(avail - (n - 1) * gap - total_fixed, 0.0)
 
     if n_flex == 0:
         return sizes
@@ -178,7 +179,7 @@ def _tray_size(tray, avail_w, avail_d, defs):
     return w, d
 
 
-def _resolve_node(node, x, y, avail_w, avail_d, defs, max_x, max_y):
+def _resolve_node(node, x, y, avail_w, avail_d, defs, max_x, max_y, gap=0.0):
     """Recursively resolve a layout node to a LayoutNode with absolute positions."""
     if "tray" in node:
         tray   = node["tray"]
@@ -196,24 +197,24 @@ def _resolve_node(node, x, y, avail_w, avail_d, defs, max_x, max_y):
                               split=split, cfg_node=node)
 
         if split == "V":
-            sizes   = _distribute(node, children, avail_w, defs, "V")
+            sizes   = _distribute(node, children, avail_w, defs, "V", gap)
             cx      = x
             c_nodes = []
-            for child, cw in zip(children, sizes):
+            for i, (child, cw) in enumerate(zip(children, sizes)):
                 c_nodes.append(_resolve_node(
-                    child, cx, y, cw, avail_d, defs, max_x, max_y))
-                cx += cw
+                    child, cx, y, cw, avail_d, defs, max_x, max_y, gap))
+                cx += cw + (gap if i < n - 1 else 0.0)
             return LayoutNode(x=x, y=y, w=avail_w, d=avail_d,
                               split=split, children=c_nodes, cfg_node=node)
 
         elif split == "H":
-            sizes   = _distribute(node, children, avail_d, defs, "H")
+            sizes   = _distribute(node, children, avail_d, defs, "H", gap)
             cy      = y
             c_nodes = []
-            for child, cd in zip(children, sizes):
+            for i, (child, cd) in enumerate(zip(children, sizes)):
                 c_nodes.append(_resolve_node(
-                    child, x, cy, avail_w, cd, defs, max_x, max_y))
-                cy += cd
+                    child, x, cy, avail_w, cd, defs, max_x, max_y, gap))
+                cy += cd + (gap if i < n - 1 else 0.0)
             return LayoutNode(x=x, y=y, w=avail_w, d=avail_d,
                               split=split, children=c_nodes, cfg_node=node)
 
@@ -225,12 +226,13 @@ def resolve_layout(config):
     bw     = config.get("box_width",  300.0)
     bd     = config.get("box_depth",  250.0)
     m      = config.get("margin",       0.0)
+    gap    = config.get("tray_gap",     0.0)
     defs   = config.get("defaults")   or {}
     layout = config.get("layout",
                         {"tray": {"name": "Tray", "comp_layout": {"comp": {}}}})
     avail_w = max(bw - 2 * m, 1.0)
     avail_d = max(bd - 2 * m, 1.0)
-    return _resolve_node(layout, m, m, avail_w, avail_d, defs, bw - m, bd - m)
+    return _resolve_node(layout, m, m, avail_w, avail_d, defs, bw - m, bd - m, gap)
 
 
 def collect_trays_from_layout(node):
@@ -651,27 +653,18 @@ def export_stl(shape, filepath):
 
 def arrange_objects(doc, built_trays, gap=20.0):
     """
-    Position trays. Uses x_pos/y_pos if set on tray cfg,
-    otherwise lays them side by side along X.
+    Position trays side by side along X with the given gap between them.
     """
-    has_positions = any("x_pos" in cfg or "y_pos" in cfg
-                        for _, cfg in built_trays)
     x_offset = 0.0
     for name, tray_cfg in built_trays:
         obj = doc.getObject(name)
         if obj is None:
             continue
-        if has_positions:
-            x = tray_cfg.get("x_pos", 0.0)
-            y = tray_cfg.get("y_pos", 0.0)
-        else:
-            x = x_offset
-            y = 0.0
-            x_offset += tray_cfg["width"] + gap
         obj.Placement = FreeCAD.Placement(
-            FreeCAD.Vector(x, y, 0),
+            FreeCAD.Vector(x_offset, 0.0, 0),
             FreeCAD.Rotation()
         )
+        x_offset += tray_cfg["width"] + gap
 
 
 # ── Main (standalone JSON mode) ────────────────────────────────────────────────

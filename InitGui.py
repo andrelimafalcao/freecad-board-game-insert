@@ -1,41 +1,20 @@
+import FreeCAD
 import FreeCADGui
 import os
-import sys
-
-def _find_addon_dir():
-    try:
-        return os.path.dirname(os.path.abspath(__file__))
-    except NameError:
-        pass
-    try:
-        import inspect
-        return os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-    except Exception:
-        pass
-    for p in sys.path:
-        if (os.path.isfile(os.path.join(p, "insert_designer.py"))
-                and os.path.isfile(os.path.join(p, "board_game_insert.py"))):
-            return p
-    return None
-
-_dir = _find_addon_dir()
 
 
 class InsertDesignerCommand:
     def GetResources(self):
-        res = {
+        return {
             'MenuText': 'Insert Designer',
             'ToolTip':  'Open the board game insert designer',
+            'Pixmap':   'insert_designer.svg',
         }
-        if _dir is not None:
-            res['Pixmap'] = os.path.join(_dir, "icons", "insert_designer.svg")
-        return res
 
     def IsActive(self):
         return True
 
     def Activated(self):
-        import FreeCAD
         try:
             import insert_designer
             import importlib
@@ -47,10 +26,14 @@ class InsertDesignerCommand:
 
 FreeCADGui.addCommand("InsertDesigner_Open", InsertDesignerCommand())
 
+_icon_dir = os.path.join(FreeCAD.getUserAppDataDir(), "Mod", "BGInsertDesigner", "icons")
+FreeCADGui.addIconPath(_icon_dir)
+
 
 class InsertDesignerWorkbench(FreeCADGui.Workbench):
     MenuText = "Insert Designer"
     ToolTip  = "Board game insert designer tools"
+    Icon     = "insert_designer.svg"
 
     def Initialize(self):
         self.appendToolbar("Insert Designer", ["InsertDesigner_Open"])

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Target rect -->
+  <rect x="6" y="10" width="14" height="16" rx="2"
+        fill="#1e1e2e" stroke="#cdd6f4" stroke-width="1.6"/>
+  <!-- Arrow pointing into rect -->
+  <line x1="24" y1="8" x2="16" y2="16" stroke="#f38ba8" stroke-width="1.6" stroke-linecap="round"/>
+  <polyline points="17,8 24,8 24,15"
+        fill="none" stroke="#f38ba8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

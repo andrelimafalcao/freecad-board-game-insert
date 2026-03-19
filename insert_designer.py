@@ -9,7 +9,7 @@ New model: layout tree with split nodes and tray-leaf nodes.
 Layout:
   Top    — toolbar
   Left   — canvas (box + trays + compartments)
-  Right  — Properties panel + Tree tab
+  Right  — Properties panel
 
 Run from FreeCAD: Macro > Macros > Execute
 Requires board_game_insert.py in the same folder.
@@ -25,6 +25,20 @@ import FreeCADGui
 
 from PySide2 import QtWidgets, QtCore, QtGui
 from PySide2.QtCore import Qt
+
+
+# ── Icons ─────────────────────────────────────────────────────────────────────
+
+try:
+    _ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
+except NameError:
+    _ICON_DIR = None
+
+def _load_icon(name):
+    if _ICON_DIR is None:
+        return QtGui.QIcon()
+    path = os.path.join(_ICON_DIR, name + ".svg")
+    return QtGui.QIcon(path) if os.path.isfile(path) else QtGui.QIcon()
 
 
 # ── Import core generator ─────────────────────────────────────────────────────
@@ -226,11 +240,12 @@ class LayoutCanvas(QtWidgets.QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.config     = {}
-        self._gen       = None      # set by owner after import
-        self._selection = None      # (sel_type, data_dict)
-        self._hit_list  = []
-        self._dividers  = []        # [(config_split_node, child_idx, "V"|"H", split_mm)]
+        self.config         = {}
+        self._gen           = None      # set by owner after import
+        self._selection     = None      # (sel_type, data_dict)
+        self._hit_list      = []
+        self._comp_tray_map = {}        # id(src_comp) -> tray dict
+        self._dividers      = []        # [(config_split_node, child_idx, "V"|"H", split_mm)]
         self._drag_div  = None      # (config_split_node, child_idx, "V"|"H")
         self._drag_start_mm = 0.0
         self._tray_index    = 0
@@ -304,7 +319,7 @@ class LayoutCanvas(QtWidgets.QWidget):
         p.drawText(QtCore.QRectF(ox, oy + bd * scale + 4, bw * scale, 14),
                    Qt.AlignHCenter | Qt.AlignTop, f"{bw:.0f} mm")
         p.save()
-        p.translate(ox - 4, oy + bd * scale)
+        p.translate(ox - 16, oy + bd * scale)
         p.rotate(-90)
         p.drawText(QtCore.QRectF(0, 0, bd * scale, 14),
                    Qt.AlignHCenter | Qt.AlignTop, f"{bd:.0f} mm")
@@ -322,9 +337,10 @@ class LayoutCanvas(QtWidgets.QWidget):
             p.drawRect(margin_px)
 
         # Reset hit/divider lists
-        self._hit_list  = [(SEL_BOX, self.config, box_px)]
-        self._dividers  = []
-        self._tray_index = 0
+        self._hit_list      = [(SEL_BOX, self.config, box_px)]
+        self._dividers      = []
+        self._comp_tray_map = {}
+        self._tray_index    = 0
 
         if self._gen and self.config.get("layout"):
             try:
@@ -464,9 +480,12 @@ class LayoutCanvas(QtWidgets.QWidget):
 
             # Notch indicator
             notch = comp.get("finger_notch")
+            if notch is None:
+                notch = defs.get("finger_notch", "None")
             if notch and notch not in ("None", "none"):
                 nw_px = min(
-                    comp.get("finger_notch_width", min(w_mm, d_mm) * 0.4) * scale,
+                    comp.get("finger_notch_width",
+                             defs.get("finger_notch_width", min(w_mm, d_mm) * 0.4)) * scale,
                     rect_px.width() * 0.8, rect_px.height() * 0.8,
                 )
                 bar = max(5.0, min(10.0, rect_px.width() * 0.15,
@@ -509,6 +528,7 @@ class LayoutCanvas(QtWidgets.QWidget):
                 p.setFont(QtGui.QFont("Arial", 7))
                 p.drawText(rect_px, Qt.AlignCenter | Qt.TextWordWrap, label)
 
+            self._comp_tray_map[id(src_comp)] = tray
             self._hit_list.append((SEL_COMP, src_comp, rect_px))
 
     # ── mouse ─────────────────────────────────────────────────────────────────
@@ -661,9 +681,11 @@ class InsertDesigner(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Board Game Insert Designer")
+        self.setWindowIcon(_load_icon("insert_designer"))
         self.resize(1100, 750)
-        self._loading = False
-        self._gen     = _import_generator()
+        self._loading        = False
+        self._gen            = _import_generator()
+        self._comp_clipboard = None
 
         self.config = {
             "document_name": "BoardGameInsert",
@@ -672,7 +694,7 @@ class InsertDesigner(QtWidgets.QDialog):
             "box_depth":    250.0,
             "box_height":    70.0,
             "margin":      2.0,
-            "arrange_gap": 1.0,
+            "tray_gap": 2.0,
             "defaults": {
                 "wall_thickness":     2.0,
                 "floor_thickness":    1.0,
@@ -708,6 +730,15 @@ class InsertDesigner(QtWidgets.QDialog):
         self._load_box_panel()
         self._refresh_tree()
 
+    # ── Event overrides ───────────────────────────────────────────────────────
+
+    def keyPressEvent(self, event):
+        # Prevent QDialog from activating its default button on Enter/Return,
+        # which would reset fields by triggering an unintended button click.
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            return
+        super().keyPressEvent(event)
+
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
@@ -722,6 +753,9 @@ class InsertDesigner(QtWidgets.QDialog):
         self.btn_split_tray_h  = QtWidgets.QPushButton("Split Tray H")
         self.btn_split_comp_v  = QtWidgets.QPushButton("Split Comp V")
         self.btn_split_comp_h  = QtWidgets.QPushButton("Split Comp H")
+        self.btn_select_tray   = QtWidgets.QPushButton("Select Tray")
+        self.btn_copy_comp     = QtWidgets.QPushButton("Copy Comp")
+        self.btn_paste_comp    = QtWidgets.QPushButton("Paste Comp")
         self.btn_delete        = QtWidgets.QPushButton("Delete")
         btn_load               = QtWidgets.QPushButton("Load JSON")
         btn_save               = QtWidgets.QPushButton("Save JSON")
@@ -729,13 +763,48 @@ class InsertDesigner(QtWidgets.QDialog):
         btn_gen.setStyleSheet("font-weight: bold; padding: 4px 14px;")
         self.btn_undo.setEnabled(False)
         self.btn_redo.setEnabled(False)
+        self.btn_select_tray.setEnabled(False)
+        self.btn_copy_comp.setEnabled(False)
+        self.btn_paste_comp.setEnabled(False)
+
+        _disabled_style = (
+            "QPushButton:disabled { color: #777; border: 1px solid #555; "
+            "background-color: #2a2a2a; opacity: 0.4; }"
+        )
+        for _b in [self.btn_undo, self.btn_redo,
+                   self.btn_split_tray_v, self.btn_split_tray_h,
+                   self.btn_split_comp_v, self.btn_split_comp_h,
+                   self.btn_select_tray, self.btn_copy_comp,
+                   self.btn_paste_comp, self.btn_delete]:
+            _b.setStyleSheet(_disabled_style)
+
+        _icon_size = QtCore.QSize(20, 20)
+        for _btn, _name in [
+            (self.btn_undo,          "undo"),
+            (self.btn_redo,          "redo"),
+            (self.btn_split_tray_v,  "split_tray_v"),
+            (self.btn_split_tray_h,  "split_tray_h"),
+            (self.btn_split_comp_v,  "split_comp_v"),
+            (self.btn_split_comp_h,  "split_comp_h"),
+            (self.btn_select_tray,   "select_tray"),
+            (self.btn_copy_comp,     "copy_comp"),
+            (self.btn_paste_comp,    "paste_comp"),
+            (self.btn_delete,        "delete"),
+            (btn_load,               "load_json"),
+            (btn_save,               "save_json"),
+            (btn_gen,                "generate"),
+        ]:
+            _btn.setIcon(_load_icon(_name))
+            _btn.setIconSize(_icon_size)
 
         for b in [self.btn_undo, self.btn_redo,
                   self.btn_split_tray_v, self.btn_split_tray_h,
                   self.btn_split_comp_v, self.btn_split_comp_h,
+                  self.btn_select_tray,
+                  self.btn_copy_comp, self.btn_paste_comp,
                   self.btn_delete, btn_load, btn_save, btn_gen]:
             tb.addWidget(b)
-        tb.insertStretch(7)
+        tb.insertStretch(10)
 
         self.btn_undo.clicked.connect(self._undo)
         self.btn_redo.clicked.connect(self._redo)
@@ -743,6 +812,9 @@ class InsertDesigner(QtWidgets.QDialog):
         self.btn_split_tray_h.clicked.connect(lambda: self._split_tray("H"))
         self.btn_split_comp_v.clicked.connect(lambda: self._split_comp("V"))
         self.btn_split_comp_h.clicked.connect(lambda: self._split_comp("H"))
+        self.btn_select_tray.clicked.connect(self._comp_select_tray)
+        self.btn_copy_comp.clicked.connect(self._copy_comp)
+        self.btn_paste_comp.clicked.connect(self._paste_comp)
         self.btn_delete.clicked.connect(self._delete_selected)
         btn_load.clicked.connect(self._load_json)
         btn_save.clicked.connect(self._save_json)
@@ -767,9 +839,11 @@ class InsertDesigner(QtWidgets.QDialog):
         splitter.addWidget(self.canvas)
 
         # Right side
-        self.right_tabs = QtWidgets.QTabWidget()
-        self.right_tabs.setMinimumWidth(280)
-        self.right_tabs.setMaximumWidth(420)
+        right_panel = QtWidgets.QWidget()
+        right_panel.setMinimumWidth(280)
+        right_panel.setMaximumWidth(420)
+        right_layout = QtWidgets.QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
 
         self.stack = QtWidgets.QStackedWidget()
         self.stack.addWidget(self._panel_box())    # 0
@@ -778,15 +852,15 @@ class InsertDesigner(QtWidgets.QDialog):
         placeholder = QtWidgets.QLabel("Click something on the canvas.")
         placeholder.setAlignment(Qt.AlignCenter)
         self.stack.addWidget(placeholder)          # 3
-        self.right_tabs.addTab(self.stack, "Properties")
+        right_layout.addWidget(self.stack)
 
+        # Keep tree widget alive (hidden) so _refresh_tree() calls don't crash
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setAnimated(True)
         self.tree.itemClicked.connect(self._on_tree_click)
-        self.right_tabs.addTab(self.tree, "Tree")
 
-        splitter.addWidget(self.right_tabs)
+        splitter.addWidget(right_panel)
         splitter.setSizes([720, 340])
 
     # ── Property panels ───────────────────────────────────────────────────────
@@ -825,10 +899,11 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow(_section_label("Document"))
         f.addRow("Name:", self.box_doc)
         f.addRow(_section_label("Box inner space"))
-        f.addRow("Width (X):",  self.box_w)
-        f.addRow("Depth (Y):",  self.box_d)
-        f.addRow("Height (Z):", self.box_h)
-        f.addRow("Margin:",     self.box_margin)
+        f.addRow("Width (X):",    self.box_w)
+        f.addRow("Depth (Y):",    self.box_d)
+        f.addRow("Height (Z):",   self.box_h)
+        f.addRow("Margin:",       self.box_margin)
+        f.addRow("Tray spacing:", self.box_gap)
         f.addRow(_section_label("Defaults"))
         f.addRow("Wall thickness:",  self.box_def_wall)
         f.addRow("Floor thickness:", self.box_def_floor)
@@ -845,7 +920,6 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow("Base type:",     self.box_def_f_base_type)
         f.addRow("Bottom chamfer:", self.box_def_f_bot)
         f.addRow(_section_label("Output"))
-        f.addRow("Tray spacing:", self.box_gap)
         f.addRow("Directory:",    dir_row)
 
         btn_browse.clicked.connect(self._browse_dir)
@@ -858,7 +932,8 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_h.valueChanged.connect(lambda v: self._cfg("box_height", v))
         self.box_margin.valueChanged.connect(
             lambda v: (self._cfg("margin", v), self.canvas.refresh()))
-        self.box_gap.valueChanged.connect(lambda v: self._cfg("arrange_gap", v))
+        self.box_gap.valueChanged.connect(
+            lambda v: (self._cfg("tray_gap", v), self.canvas.refresh()))
         self.box_def_wall.valueChanged.connect(lambda v: self._def("wall_thickness", v))
         self.box_def_floor.valueChanged.connect(lambda v: self._def("floor_thickness", v))
         self.box_def_div.valueChanged.connect(lambda v: self._def("div_thickness", v))
@@ -1042,18 +1117,27 @@ class InsertDesigner(QtWidgets.QDialog):
         is_tray = sel_type == SEL_TRAY
         is_comp = sel_type == SEL_COMP
 
-        # Split Tray: only on flexible trays
-        if is_tray and data:
+        # Split Tray: enabled on flexible trays, and on comps (splits the parent tray)
+        if is_tray:
+            tray_data = data
+        elif is_comp and data is not None:
+            tray_data = self.canvas._comp_tray_map.get(id(data))
+        else:
+            tray_data = None
+        if tray_data:
             try:
-                flexible = _tray_is_flexible(data, defs, self._gen)
+                flexible = _tray_is_flexible(tray_data, defs, self._gen)
             except Exception:
                 flexible = False
         else:
             flexible = False
-        self.btn_split_tray_v.setEnabled(is_tray and flexible)
-        self.btn_split_tray_h.setEnabled(is_tray and flexible)
+        self.btn_split_tray_v.setEnabled(flexible)
+        self.btn_split_tray_h.setEnabled(flexible)
         self.btn_split_comp_v.setEnabled(is_comp)
         self.btn_split_comp_h.setEnabled(is_comp)
+        self.btn_select_tray.setEnabled(is_comp)
+        self.btn_copy_comp.setEnabled(is_comp)
+        self.btn_paste_comp.setEnabled(is_comp and self._comp_clipboard is not None)
         self.btn_delete.setEnabled(is_tray or is_comp)
 
     # ── Undo / redo ───────────────────────────────────────────────────────────
@@ -1186,7 +1270,6 @@ class InsertDesigner(QtWidgets.QDialog):
         sel_type, sel_data = data
         self.canvas.set_selection(sel_type, sel_data)
         self._on_selection(sel_type, sel_data)
-        self.right_tabs.setCurrentIndex(0)
 
     # ── Panel loaders ─────────────────────────────────────────────────────────
 
@@ -1198,7 +1281,7 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_d.setValue(cfg.get("box_depth",  250.0))
         self.box_h.setValue(cfg.get("box_height",  70.0))
         self.box_margin.setValue(cfg.get("margin", 2.0))
-        self.box_gap.setValue(cfg.get("arrange_gap", 1.0))
+        self.box_gap.setValue(cfg.get("tray_gap", 2.0))
         defs = cfg.get("defaults", {})
         self.box_def_wall.setValue(defs.get("wall_thickness", 2.0))
         self.box_def_floor.setValue(defs.get("floor_thickness", 1.0))
@@ -1347,6 +1430,41 @@ class InsertDesigner(QtWidgets.QDialog):
             return self._selection[1]
         return None
 
+    def _comp_select_tray(self):
+        comp = self._current_comp()
+        if comp is None:
+            return
+        tray = self.canvas._comp_tray_map.get(id(comp))
+        if tray is None:
+            return
+        self.canvas.set_selection(SEL_TRAY, tray)
+        self._on_selection(SEL_TRAY, tray)
+
+    _COMP_COPY_KEYS = (
+        "width", "depth", "floor_thickness",
+        "finger_hole", "finger_hole_radius",
+        "finger_notch", "finger_notch_width",
+    )
+
+    def _copy_comp(self):
+        comp = self._current_comp()
+        if comp is None:
+            return
+        self._comp_clipboard = {k: comp[k] for k in self._COMP_COPY_KEYS if k in comp}
+        self._update_toolbar(SEL_COMP, comp)   # refresh Paste enable state
+
+    def _paste_comp(self):
+        comp = self._current_comp()
+        if comp is None or not self._comp_clipboard:
+            return
+        self._snapshot()
+        for k in self._COMP_COPY_KEYS:
+            comp.pop(k, None)
+        comp.update({k: v for k, v in self._comp_clipboard.items()
+                     if k != "label"})
+        self._on_selection(SEL_COMP, comp)
+        self.canvas.refresh()
+
     def _tr(self, key, val):
         if self._loading:
             return
@@ -1474,6 +1592,7 @@ class InsertDesigner(QtWidgets.QDialog):
         else:
             comp["floor_thickness"] = self.comp_floor.value()
             self.comp_floor.setEnabled(True)
+        self.canvas.refresh()
 
     def _comp_hole_toggle(self, checked):
         if self._loading:
@@ -1481,10 +1600,8 @@ class InsertDesigner(QtWidgets.QDialog):
         comp = self._current_comp()
         if comp is not None:
             self._snapshot_if_new_edit()
-            if checked:
-                comp["finger_hole"] = True
-            else:
-                comp.pop("finger_hole", None)
+            comp["finger_hole"] = checked
+            self.canvas.refresh()
 
     def _comp_hole_dflt_toggle(self, checked):
         if self._loading:
@@ -1513,10 +1630,7 @@ class InsertDesigner(QtWidgets.QDialog):
         comp = self._current_comp()
         if comp is not None:
             self._snapshot_if_new_edit()
-            if text == "None":
-                comp.pop("finger_notch", None)
-            else:
-                comp["finger_notch"] = text
+            comp["finger_notch"] = text
             self.canvas.refresh()
 
     def _comp_notch_dflt_toggle(self, checked):
@@ -1573,9 +1687,14 @@ class InsertDesigner(QtWidgets.QDialog):
     def _split_tray(self, direction):
         """
         Split the currently selected tray's slot into N equal sibling trays.
+        Also works when a comp is selected — splits the comp's parent tray.
         Only valid on flexible trays.
         """
         tray = self._current_tray()
+        if tray is None:
+            comp = self._current_comp()
+            if comp is not None:
+                tray = _find_tray_for_comp(self.config.get("layout", {}), comp)
         if tray is None:
             return
 
@@ -1840,9 +1959,8 @@ class InsertDesigner(QtWidgets.QDialog):
                 self, "Generate", "No trays found in layout.")
             return
 
-        doc         = FreeCAD.newDocument(doc_name)
-        built_trays = []
-        errors      = []
+        doc    = FreeCAD.newDocument(doc_name)
+        errors = []
 
         for node, tray_cfg in trays:
             name = tray_cfg.get("name", "Tray")
@@ -1867,16 +1985,16 @@ class InsertDesigner(QtWidgets.QDialog):
 
             obj       = doc.addObject("Part::Feature", name)
             obj.Shape = shape
-            tray_cfg["x_pos"] = node.x
-            tray_cfg["y_pos"] = node.y
-            built_trays.append((obj.Name, tray_cfg))
+            # Place tray to match canvas layout; flip Y so FreeCAD top view = canvas
+            box_d = cfg.get("box_depth", 250.0)
+            fx = node.x
+            fy = box_d - node.y - node.d
+            obj.Placement = FreeCAD.Placement(
+                FreeCAD.Vector(fx, fy, 0), FreeCAD.Rotation())
 
             stl_path = os.path.join(out_dir, f"{name}.stl")
             self._gen.export_stl(shape, stl_path)
             FreeCAD.Console.PrintMessage(f"  → STL: {stl_path}\n")
-
-        self._gen.arrange_objects(
-            doc, built_trays, gap=self.config.get("arrange_gap", 1.0))
 
         fcstd_path = os.path.join(out_dir, f"{doc_name}.FCStd")
         doc.saveAs(fcstd_path)

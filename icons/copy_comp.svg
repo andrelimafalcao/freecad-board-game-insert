@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Back rect (source) -->
+  <rect x="6" y="10" width="14" height="16" rx="2"
+        fill="none" stroke="#cdd6f4" stroke-width="1.6"/>
+  <!-- Front rect (copy) -->
+  <rect x="12" y="6" width="14" height="16" rx="2"
+        fill="#1e1e2e" stroke="#cdd6f4" stroke-width="1.6"/>
+  <!-- Plus / copy indicator -->
+  <line x1="19" y1="11" x2="19" y2="17" stroke="#a6e3a1" stroke-width="1.6" stroke-linecap="round"/>
+  <line x1="16" y1="14" x2="22" y2="14" stroke="#a6e3a1" stroke-width="1.6" stroke-linecap="round"/>
+</svg>
