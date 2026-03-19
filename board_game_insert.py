@@ -369,6 +369,17 @@ def make_finger_notch(side, cx, cy, x0, y0, comp_w, comp_d, H, t, notch_w, floor
         raise ValueError(f"Invalid finger_notch side '{side}'. Use: south|north|east|west.")
 
 
+def _notch_sides(val):
+    """Normalize finger_notch value (string or list) to a list of valid side strings."""
+    if not val:
+        return []
+    if isinstance(val, list):
+        return [s for s in val if s and s not in ("None", "none")]
+    if val in ("None", "none"):
+        return []
+    return [val]
+
+
 # ── Tray builder ───────────────────────────────────────────────────────────────
 
 def build_tray(tray_cfg, resolved_comps, box_h, defs):
@@ -432,11 +443,10 @@ def build_tray(tray_cfg, resolved_comps, box_h, defs):
                 FreeCAD.Console.PrintWarning(
                     f"  Skipping finger_hole in '{name}': compartment too small.\n")
 
-        notch_side = comp.get("finger_notch")
-        if notch_side and notch_side not in ("None", "none"):
-            notch_w = comp.get("finger_notch_width", min(cw, cd) * 0.4)
+        notch_w = comp.get("finger_notch_width", min(cw, cd) * 0.4)
+        _eps = 0.1
+        for notch_side in _notch_sides(comp.get("finger_notch")):
             # Use wall_t for outer-wall faces, div_t for inner divider faces
-            _eps = 0.1
             if notch_side == "south":
                 nt = t if cy0 <= t + _eps else div_t
             elif notch_side == "north":
