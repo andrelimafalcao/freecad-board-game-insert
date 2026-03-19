@@ -758,10 +758,10 @@ class InsertDesigner(QtWidgets.QDialog):
         def _icon_btn(icon_name, tooltip, fixed=True):
             b = QtWidgets.QPushButton()
             b.setIcon(_load_icon(icon_name))
-            b.setIconSize(QtCore.QSize(20, 20))
+            b.setIconSize(QtCore.QSize(16, 16))
             b.setToolTip(tooltip)
             if fixed:
-                b.setFixedSize(32, 32)
+                b.setFixedSize(26, 26)
             return b
 
         def _tb_sep():
@@ -805,7 +805,7 @@ class InsertDesigner(QtWidgets.QDialog):
         btn_load = _icon_btn("load_json", "Load JSON")
         btn_save = _icon_btn("save_json", "Save JSON")
         btn_gen  = _icon_btn("generate",  "Generate Insert", fixed=False)
-        btn_gen.setFixedHeight(32)
+        btn_gen.setFixedHeight(26)
         btn_gen.setMinimumWidth(36)
 
         for _b in [self.btn_undo, self.btn_redo,
