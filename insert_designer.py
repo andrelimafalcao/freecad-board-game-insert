@@ -84,6 +84,21 @@ _TRAY_PALETTE = [
 ]
 
 
+# ── Notch helpers ─────────────────────────────────────────────────────────────
+
+_NOTCH_SIDES = ("north", "south", "west", "east")
+
+def _notch_val_to_sides(val):
+    """Normalize finger_notch (string or list) to a set of side strings."""
+    if not val:
+        return set()
+    if isinstance(val, list):
+        return {s for s in val if s and s not in ("None", "none")}
+    if val in ("None", "none"):
+        return set()
+    return {val}
+
+
 # ── Helper widgets ────────────────────────────────────────────────────────────
 
 def _dspin(min_=0.0, max_=9999.0, decimals=1, suffix=" mm", step=1.0):
@@ -479,10 +494,11 @@ class LayoutCanvas(QtWidgets.QWidget):
             self._draw_rounded_rect(p, rect_px, r_int, fill, pen)
 
             # Notch indicator
-            notch = comp.get("finger_notch")
-            if notch is None:
-                notch = defs.get("finger_notch", "None")
-            if notch and notch not in ("None", "none"):
+            _notch_raw = comp.get("finger_notch")
+            if _notch_raw is None:
+                _notch_raw = defs.get("finger_notch")
+            _active_notches = _notch_val_to_sides(_notch_raw)
+            if _active_notches:
                 nw_px = min(
                     comp.get("finger_notch_width",
                              defs.get("finger_notch_width", min(w_mm, d_mm) * 0.4)) * scale,
@@ -496,14 +512,15 @@ class LayoutCanvas(QtWidgets.QWidget):
                 p.setBrush(nc)
                 cx_px = rect_px.center().x()
                 cy_px = rect_px.center().y()
-                if notch == "south":
-                    p.drawRect(QtCore.QRectF(cx_px - nw_px/2, rect_px.bottom(), nw_px, bar))
-                elif notch == "north":
-                    p.drawRect(QtCore.QRectF(cx_px - nw_px/2, rect_px.top() - bar, nw_px, bar))
-                elif notch == "west":
-                    p.drawRect(QtCore.QRectF(rect_px.left() - bar, cy_px - nw_px/2, bar, nw_px))
-                elif notch == "east":
-                    p.drawRect(QtCore.QRectF(rect_px.right(), cy_px - nw_px/2, bar, nw_px))
+                for _ns in _active_notches:
+                    if _ns == "south":
+                        p.drawRect(QtCore.QRectF(cx_px - nw_px/2, rect_px.bottom(), nw_px, bar))
+                    elif _ns == "north":
+                        p.drawRect(QtCore.QRectF(cx_px - nw_px/2, rect_px.top() - bar, nw_px, bar))
+                    elif _ns == "west":
+                        p.drawRect(QtCore.QRectF(rect_px.left() - bar, cy_px - nw_px/2, bar, nw_px))
+                    elif _ns == "east":
+                        p.drawRect(QtCore.QRectF(rect_px.right(), cy_px - nw_px/2, bar, nw_px))
                 p.restore()
 
             # Finger hole indicator
@@ -707,7 +724,7 @@ class InsertDesigner(QtWidgets.QDialog):
                 "div_thickness":      1.5,
                 "finger_hole":        False,
                 "finger_hole_radius": 10.0,
-                "finger_notch":       "None",
+                "finger_notch":       [],
                 "finger_notch_width": 20.0,
                 "fillet": {
                     "external":       2.0,
@@ -905,8 +922,7 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_def_div    = _dspin(0, 20, step=0.5)
         self.box_def_hole   = QtWidgets.QCheckBox("Enabled by default")
         self.box_def_hole_r = _dspin(1, 100, step=0.5)
-        self.box_def_notch  = QtWidgets.QComboBox()
-        self.box_def_notch.addItems(["None", "south", "north", "east", "west"])
+        self.box_def_notch_chk = {s: QtWidgets.QCheckBox(s[0].upper()) for s in _NOTCH_SIDES}
         self.box_def_notch_w = _dspin(5, 200, step=1)
         self.box_def_f_ext   = _dspin(0, 20, step=0.5)
         self.box_def_f_int   = _dspin(0, 20, step=0.5)
@@ -934,7 +950,15 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow(_section_label("Default finger features"))
         f.addRow("Finger hole:",   self.box_def_hole)
         f.addRow("Hole radius:",   self.box_def_hole_r)
-        f.addRow("Finger notch:",  self.box_def_notch)
+        _def_compass = QtWidgets.QWidget()
+        _dcgl = QtWidgets.QGridLayout(_def_compass)
+        _dcgl.setContentsMargins(0, 0, 0, 0)
+        _dcgl.setSpacing(2)
+        _dcgl.addWidget(self.box_def_notch_chk["north"], 0, 1, Qt.AlignHCenter)
+        _dcgl.addWidget(self.box_def_notch_chk["west"],  1, 0)
+        _dcgl.addWidget(self.box_def_notch_chk["east"],  1, 2)
+        _dcgl.addWidget(self.box_def_notch_chk["south"], 2, 1, Qt.AlignHCenter)
+        f.addRow("Finger notch:",  _def_compass)
         f.addRow("Notch width:",   self.box_def_notch_w)
         f.addRow(_section_label("Default fillets  (0 = off)"))
         f.addRow("External:",      self.box_def_f_ext)
@@ -962,7 +986,8 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_def_div.valueChanged.connect(lambda v: self._def("div_thickness", v))
         self.box_def_hole.toggled.connect(lambda v: self._def("finger_hole", v))
         self.box_def_hole_r.valueChanged.connect(lambda v: self._def("finger_hole_radius", v))
-        self.box_def_notch.currentTextChanged.connect(lambda v: self._def("finger_notch", v))
+        for _chk in self.box_def_notch_chk.values():
+            _chk.toggled.connect(self._box_def_notch_change)
         self.box_def_notch_w.valueChanged.connect(lambda v: self._def("finger_notch_width", v))
         self.box_def_f_ext.valueChanged.connect(lambda v: self._def_fillet("external", v))
         self.box_def_f_int.valueChanged.connect(lambda v: self._def_fillet("internal", v))
@@ -1064,8 +1089,7 @@ class InsertDesigner(QtWidgets.QDialog):
         self.comp_hole_dflt  = QtWidgets.QCheckBox("Use box default")
         self.comp_hole_r     = _dspin(1, 100, step=0.5)
         self.comp_hole_r_dflt = QtWidgets.QCheckBox("Use box default")
-        self.comp_notch      = QtWidgets.QComboBox()
-        self.comp_notch.addItems(["None", "south", "north", "east", "west"])
+        self.comp_notch_chk = {s: QtWidgets.QCheckBox(s[0].upper()) for s in _NOTCH_SIDES}
         self.comp_notch_dflt  = QtWidgets.QCheckBox("Use box default")
         self.comp_notch_w     = _dspin(5, 200, step=1)
         self.comp_notch_w_dflt = QtWidgets.QCheckBox("Use box default")
@@ -1085,10 +1109,17 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow("", _hbox(self.comp_hole, self.comp_hole_dflt))
         f.addRow("Hole radius:", _hbox(self.comp_hole_r, self.comp_hole_r_dflt))
         f.addRow(_section_label("Finger notch  (wall cutout at top)"))
-        f.addRow("Notch side:",  _hbox(self.comp_notch, self.comp_notch_dflt))
+        _compass = QtWidgets.QWidget()
+        _cgl = QtWidgets.QGridLayout(_compass)
+        _cgl.setContentsMargins(0, 0, 0, 0)
+        _cgl.setSpacing(2)
+        _cgl.addWidget(self.comp_notch_chk["north"], 0, 1, Qt.AlignHCenter)
+        _cgl.addWidget(self.comp_notch_chk["west"],  1, 0)
+        _cgl.addWidget(self.comp_notch_chk["east"],  1, 2)
+        _cgl.addWidget(self.comp_notch_chk["south"], 2, 1, Qt.AlignHCenter)
+        f.addRow("Notch sides:", _hbox(_compass, self.comp_notch_dflt))
         f.addRow("Notch width:", _hbox(self.comp_notch_w, self.comp_notch_w_dflt))
-        hint = QtWidgets.QLabel(
-            "south = front  north = back\nwest = left   east = right")
+        hint = QtWidgets.QLabel("N=back  S=front  W=left  E=right")
         hint.setStyleSheet("color: #888; font-size: 10px;")
         f.addRow("", hint)
 
@@ -1108,7 +1139,8 @@ class InsertDesigner(QtWidgets.QDialog):
         self.comp_hole_r.valueChanged.connect(lambda v: self._comp("finger_hole_radius", v))
         self.comp_hole_r_dflt.toggled.connect(
             lambda c: self._comp_use_default("finger_hole_radius", c, self.comp_hole_r))
-        self.comp_notch.currentTextChanged.connect(self._comp_notch_change)
+        for _chk in self.comp_notch_chk.values():
+            _chk.toggled.connect(self._comp_notch_sides_change)
         self.comp_notch_dflt.toggled.connect(self._comp_notch_dflt_toggle)
         self.comp_notch_w.valueChanged.connect(lambda v: self._comp("finger_notch_width", v))
         self.comp_notch_w_dflt.toggled.connect(
@@ -1311,7 +1343,9 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_def_div.setValue(defs.get("div_thickness", 1.5))
         self.box_def_hole.setChecked(bool(defs.get("finger_hole", False)))
         self.box_def_hole_r.setValue(defs.get("finger_hole_radius", 10.0))
-        self.box_def_notch.setCurrentText(defs.get("finger_notch", "None"))
+        _def_active = _notch_val_to_sides(defs.get("finger_notch"))
+        for side, chk in self.box_def_notch_chk.items():
+            chk.setChecked(side in _def_active)
         self.box_def_notch_w.setValue(defs.get("finger_notch_width", 20.0))
         df = defs.get("fillet", {})
         self.box_def_f_ext.setValue(df.get("external", 2.0))
@@ -1413,9 +1447,12 @@ class InsertDesigner(QtWidgets.QDialog):
 
         notch_dflt = "finger_notch" not in comp
         self.comp_notch_dflt.setChecked(notch_dflt)
-        self.comp_notch.setEnabled(not notch_dflt)
-        notch = comp.get("finger_notch") or defs.get("finger_notch") or "None"
-        self.comp_notch.setCurrentText(notch)
+        for chk in self.comp_notch_chk.values():
+            chk.setEnabled(not notch_dflt)
+        notch_val = comp.get("finger_notch") if not notch_dflt else defs.get("finger_notch")
+        active_sides = _notch_val_to_sides(notch_val)
+        for side, chk in self.comp_notch_chk.items():
+            chk.setChecked(side in active_sides)
 
         notch_w_dflt = "finger_notch_width" not in comp
         self.comp_notch_w_dflt.setChecked(notch_w_dflt)
@@ -1436,6 +1473,14 @@ class InsertDesigner(QtWidgets.QDialog):
             self._snapshot_if_new_edit()
             self.config.setdefault("defaults", {})[key] = val
             self.canvas.refresh()
+
+    def _box_def_notch_change(self, _=None):
+        if self._loading:
+            return
+        self._snapshot_if_new_edit()
+        sides = [s for s in _NOTCH_SIDES if self.box_def_notch_chk[s].isChecked()]
+        self.config.setdefault("defaults", {})["finger_notch"] = sides
+        self.canvas.refresh()
 
     def _def_fillet(self, key, val):
         if not self._loading:
@@ -1647,14 +1692,16 @@ class InsertDesigner(QtWidgets.QDialog):
             comp["finger_hole"] = self.comp_hole.isChecked()
         self.canvas.refresh()
 
-    def _comp_notch_change(self, text):
+    def _comp_notch_sides_change(self, _=None):
         if self._loading:
             return
         comp = self._current_comp()
-        if comp is not None:
-            self._snapshot_if_new_edit()
-            comp["finger_notch"] = text
-            self.canvas.refresh()
+        if comp is None:
+            return
+        self._snapshot_if_new_edit()
+        sides = [s for s in _NOTCH_SIDES if self.comp_notch_chk[s].isChecked()]
+        comp["finger_notch"] = sides
+        self.canvas.refresh()
 
     def _comp_notch_dflt_toggle(self, checked):
         if self._loading:
@@ -1664,22 +1711,20 @@ class InsertDesigner(QtWidgets.QDialog):
             return
         defs = self.config.get("defaults", {})
         self._snapshot_if_new_edit()
+        for chk in self.comp_notch_chk.values():
+            chk.setEnabled(not checked)
         if checked:
             comp.pop("finger_notch", None)
             self._loading = True
             try:
-                self.comp_notch.setCurrentText(
-                    str(defs.get("finger_notch", "None")))
+                active = _notch_val_to_sides(defs.get("finger_notch"))
+                for side, chk in self.comp_notch_chk.items():
+                    chk.setChecked(side in active)
             finally:
                 self._loading = False
-            self.comp_notch.setEnabled(False)
         else:
-            self.comp_notch.setEnabled(True)
-            text = self.comp_notch.currentText()
-            if text and text != "None":
-                comp["finger_notch"] = text
-            else:
-                comp.pop("finger_notch", None)
+            sides = [s for s in _NOTCH_SIDES if self.comp_notch_chk[s].isChecked()]
+            comp["finger_notch"] = sides
         self.canvas.refresh()
 
     def _comp_use_default(self, key, checked, spin):
