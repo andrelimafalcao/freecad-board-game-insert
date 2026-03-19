@@ -1985,7 +1985,7 @@ class InsertDesigner(QtWidgets.QDialog):
         doc    = FreeCAD.newDocument(doc_name)
         errors = []
 
-        for node, tray_cfg in trays:
+        for tray_idx, (node, tray_cfg) in enumerate(trays):
             name = tray_cfg.get("name", "Tray")
             FreeCAD.Console.PrintMessage(f"Building '{name}'...\n")
             self._gen.merge_defaults(tray_cfg, defaults)
@@ -2008,6 +2008,8 @@ class InsertDesigner(QtWidgets.QDialog):
 
             obj       = doc.addObject("Part::Feature", name)
             obj.Shape = shape
+            c = _TRAY_PALETTE[tray_idx % len(_TRAY_PALETTE)]
+            obj.ViewObject.ShapeColor = (c.redF(), c.greenF(), c.blueF())
             # Place tray to match canvas layout; flip Y so FreeCAD top view = canvas
             box_d = cfg.get("box_depth", 250.0)
             fx = node.x
