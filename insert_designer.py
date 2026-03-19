@@ -755,13 +755,12 @@ class InsertDesigner(QtWidgets.QDialog):
         tb = QtWidgets.QHBoxLayout()
         tb.setSpacing(2)
 
-        def _icon_btn(icon_name, tooltip, fixed=True):
-            b = QtWidgets.QPushButton()
+        def _icon_btn(icon_name, tooltip):
+            b = QtWidgets.QToolButton()
             b.setIcon(_load_icon(icon_name))
             b.setIconSize(QtCore.QSize(16, 16))
             b.setToolTip(tooltip)
-            if fixed:
-                b.setFixedSize(26, 26)
+            b.setFixedSize(26, 26)
             return b
 
         def _tb_sep():
@@ -772,7 +771,7 @@ class InsertDesigner(QtWidgets.QDialog):
             return sep
 
         _disabled_style = (
-            "QPushButton:disabled { color: #777; border: 1px solid #555; "
+            "QToolButton:disabled { color: #777; border: 1px solid #555; "
             "background-color: #2a2a2a; opacity: 0.4; }"
         )
 
@@ -804,9 +803,7 @@ class InsertDesigner(QtWidgets.QDialog):
         # File / generate group (right side)
         btn_load = _icon_btn("load_json", "Load JSON")
         btn_save = _icon_btn("save_json", "Save JSON")
-        btn_gen  = _icon_btn("generate",  "Generate Insert", fixed=False)
-        btn_gen.setFixedHeight(26)
-        btn_gen.setMinimumWidth(36)
+        btn_gen  = _icon_btn("generate",  "Generate Insert")
 
         for _b in [self.btn_undo, self.btn_redo,
                    self.btn_split_tray_v, self.btn_split_tray_h,
