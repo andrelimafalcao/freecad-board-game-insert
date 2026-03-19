@@ -814,7 +814,7 @@ class InsertDesigner(QtWidgets.QDialog):
         # Layout: [history] | [split tray] | [split comp | select tray] | [copy/paste] | [delete] <stretch> [load | save] | [gen]
         def _add(widgets):
             for w in widgets:
-                if isinstance(w, QtWidgets.QWidget) and w.fixedWidth() == 1:
+                if type(w) is QtWidgets.QWidget:  # separator
                     tb.addSpacing(4)
                     tb.addWidget(w)
                     tb.addSpacing(4)
