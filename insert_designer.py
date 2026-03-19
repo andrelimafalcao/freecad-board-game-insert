@@ -682,6 +682,12 @@ class InsertDesigner(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("Board Game Insert Designer")
         self.setWindowIcon(_load_icon("insert_designer"))
+        self.setWindowFlags(
+            Qt.Window |
+            Qt.WindowMinimizeButtonHint |
+            Qt.WindowMaximizeButtonHint |
+            Qt.WindowCloseButtonHint
+        )
         self.resize(1100, 750)
         self._loading        = False
         self._gen            = _import_generator()
@@ -747,30 +753,61 @@ class InsertDesigner(QtWidgets.QDialog):
 
         # Toolbar
         tb = QtWidgets.QHBoxLayout()
-        self.btn_undo          = QtWidgets.QPushButton("Undo")
-        self.btn_redo          = QtWidgets.QPushButton("Redo")
-        self.btn_split_tray_v  = QtWidgets.QPushButton("Split Tray V")
-        self.btn_split_tray_h  = QtWidgets.QPushButton("Split Tray H")
-        self.btn_split_comp_v  = QtWidgets.QPushButton("Split Comp V")
-        self.btn_split_comp_h  = QtWidgets.QPushButton("Split Comp H")
-        self.btn_select_tray   = QtWidgets.QPushButton("Select Tray")
-        self.btn_copy_comp     = QtWidgets.QPushButton("Copy Comp")
-        self.btn_paste_comp    = QtWidgets.QPushButton("Paste Comp")
-        self.btn_delete        = QtWidgets.QPushButton("Delete")
-        btn_load               = QtWidgets.QPushButton("Load JSON")
-        btn_save               = QtWidgets.QPushButton("Save JSON")
-        btn_gen                = QtWidgets.QPushButton("Generate")
-        btn_gen.setStyleSheet("font-weight: bold; padding: 4px 14px;")
-        self.btn_undo.setEnabled(False)
-        self.btn_redo.setEnabled(False)
-        self.btn_select_tray.setEnabled(False)
-        self.btn_copy_comp.setEnabled(False)
-        self.btn_paste_comp.setEnabled(False)
+        tb.setSpacing(2)
+
+        def _icon_btn(icon_name, tooltip, fixed=True):
+            b = QtWidgets.QPushButton()
+            b.setIcon(_load_icon(icon_name))
+            b.setIconSize(QtCore.QSize(20, 20))
+            b.setToolTip(tooltip)
+            if fixed:
+                b.setFixedSize(32, 32)
+            return b
+
+        def _tb_sep():
+            sep = QtWidgets.QFrame()
+            sep.setFrameShape(QtWidgets.QFrame.VLine)
+            sep.setFrameShadow(QtWidgets.QFrame.Sunken)
+            sep.setFixedWidth(10)
+            return sep
 
         _disabled_style = (
             "QPushButton:disabled { color: #777; border: 1px solid #555; "
             "background-color: #2a2a2a; opacity: 0.4; }"
         )
+
+        # History group
+        self.btn_undo = _icon_btn("undo", "Undo  Ctrl+Z")
+        self.btn_redo = _icon_btn("redo", "Redo  Ctrl+Y")
+        self.btn_undo.setEnabled(False)
+        self.btn_redo.setEnabled(False)
+
+        # Split tray group
+        self.btn_split_tray_v = _icon_btn("split_tray_v", "Split Tray Vertically")
+        self.btn_split_tray_h = _icon_btn("split_tray_h", "Split Tray Horizontally")
+
+        # Split comp / navigate group
+        self.btn_split_comp_v = _icon_btn("split_comp_v", "Split Compartment Vertically")
+        self.btn_split_comp_h = _icon_btn("split_comp_h", "Split Compartment Horizontally")
+        self.btn_select_tray  = _icon_btn("select_tray",  "Select Parent Tray")
+        self.btn_select_tray.setEnabled(False)
+
+        # Comp clipboard group
+        self.btn_copy_comp  = _icon_btn("copy_comp",  "Copy Compartment Properties")
+        self.btn_paste_comp = _icon_btn("paste_comp", "Paste Compartment Properties")
+        self.btn_copy_comp.setEnabled(False)
+        self.btn_paste_comp.setEnabled(False)
+
+        # Delete group
+        self.btn_delete = _icon_btn("delete", "Delete Selected")
+
+        # File / generate group (right side)
+        btn_load = _icon_btn("load_json", "Load JSON")
+        btn_save = _icon_btn("save_json", "Save JSON")
+        btn_gen  = _icon_btn("generate",  "Generate Insert", fixed=False)
+        btn_gen.setFixedHeight(32)
+        btn_gen.setMinimumWidth(36)
+
         for _b in [self.btn_undo, self.btn_redo,
                    self.btn_split_tray_v, self.btn_split_tray_h,
                    self.btn_split_comp_v, self.btn_split_comp_h,
@@ -778,33 +815,16 @@ class InsertDesigner(QtWidgets.QDialog):
                    self.btn_paste_comp, self.btn_delete]:
             _b.setStyleSheet(_disabled_style)
 
-        _icon_size = QtCore.QSize(20, 20)
-        for _btn, _name in [
-            (self.btn_undo,          "undo"),
-            (self.btn_redo,          "redo"),
-            (self.btn_split_tray_v,  "split_tray_v"),
-            (self.btn_split_tray_h,  "split_tray_h"),
-            (self.btn_split_comp_v,  "split_comp_v"),
-            (self.btn_split_comp_h,  "split_comp_h"),
-            (self.btn_select_tray,   "select_tray"),
-            (self.btn_copy_comp,     "copy_comp"),
-            (self.btn_paste_comp,    "paste_comp"),
-            (self.btn_delete,        "delete"),
-            (btn_load,               "load_json"),
-            (btn_save,               "save_json"),
-            (btn_gen,                "generate"),
-        ]:
-            _btn.setIcon(_load_icon(_name))
-            _btn.setIconSize(_icon_size)
-
-        for b in [self.btn_undo, self.btn_redo,
-                  self.btn_split_tray_v, self.btn_split_tray_h,
-                  self.btn_split_comp_v, self.btn_split_comp_h,
-                  self.btn_select_tray,
-                  self.btn_copy_comp, self.btn_paste_comp,
-                  self.btn_delete, btn_load, btn_save, btn_gen]:
-            tb.addWidget(b)
-        tb.insertStretch(10)
+        # Layout: [history] | [split tray] | [split comp | select tray] | [copy/paste] | [delete] <stretch> [load | save] | [gen]
+        for w in [self.btn_undo, self.btn_redo, _tb_sep(),
+                  self.btn_split_tray_v, self.btn_split_tray_h, _tb_sep(),
+                  self.btn_split_comp_v, self.btn_split_comp_h, self.btn_select_tray, _tb_sep(),
+                  self.btn_copy_comp, self.btn_paste_comp, _tb_sep(),
+                  self.btn_delete]:
+            tb.addWidget(w)
+        tb.addStretch()
+        for w in [btn_load, btn_save, _tb_sep(), btn_gen]:
+            tb.addWidget(w)
 
         self.btn_undo.clicked.connect(self._undo)
         self.btn_redo.clicked.connect(self._redo)
