@@ -764,11 +764,9 @@ class InsertDesigner(QtWidgets.QDialog):
             return b
 
         def _tb_sep():
-            sep = QtWidgets.QFrame()
-            sep.setFrameShape(QtWidgets.QFrame.VLine)
-            sep.setFrameShadow(QtWidgets.QFrame.Plain)
-            sep.setStyleSheet("color: #555;")
-            sep.setFixedSize(2, 28)
+            sep = QtWidgets.QWidget()
+            sep.setFixedSize(1, 28)
+            sep.setStyleSheet("background: #666;")
             return sep
 
         _disabled_style = (
@@ -814,15 +812,22 @@ class InsertDesigner(QtWidgets.QDialog):
             _b.setStyleSheet(_disabled_style)
 
         # Layout: [history] | [split tray] | [split comp | select tray] | [copy/paste] | [delete] <stretch> [load | save] | [gen]
-        for w in [self.btn_undo, self.btn_redo, _tb_sep(),
-                  self.btn_split_tray_v, self.btn_split_tray_h, _tb_sep(),
-                  self.btn_split_comp_v, self.btn_split_comp_h, self.btn_select_tray, _tb_sep(),
-                  self.btn_copy_comp, self.btn_paste_comp, _tb_sep(),
-                  self.btn_delete]:
-            tb.addWidget(w)
+        def _add(widgets):
+            for w in widgets:
+                if isinstance(w, QtWidgets.QWidget) and w.fixedWidth() == 1:
+                    tb.addSpacing(4)
+                    tb.addWidget(w)
+                    tb.addSpacing(4)
+                else:
+                    tb.addWidget(w)
+
+        _add([self.btn_undo, self.btn_redo, _tb_sep(),
+              self.btn_split_tray_v, self.btn_split_tray_h, _tb_sep(),
+              self.btn_split_comp_v, self.btn_split_comp_h, self.btn_select_tray, _tb_sep(),
+              self.btn_copy_comp, self.btn_paste_comp, _tb_sep(),
+              self.btn_delete])
         tb.addStretch()
-        for w in [btn_load, btn_save, _tb_sep(), btn_gen]:
-            tb.addWidget(w)
+        _add([btn_load, btn_save, _tb_sep(), btn_gen])
 
         self.btn_undo.clicked.connect(self._undo)
         self.btn_redo.clicked.connect(self._redo)
