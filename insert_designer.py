@@ -368,6 +368,39 @@ class LayoutCanvas(QtWidgets.QWidget):
                 p.drawText(box_px, Qt.AlignCenter,
                            f"Layout error:\n{e}")
 
+        # Draw blocked areas: trays from lower levels that span into this level
+        active = self._active_level
+        levels = self.config.get("levels", [])
+        if self._gen and active > 0:
+            for lv_idx in range(active):
+                lv     = levels[lv_idx] if lv_idx < len(levels) else {}
+                layout = lv.get("layout") or {}
+                if not layout:
+                    continue
+                try:
+                    ln    = self._gen.resolve_layout({**self.config, "layout": layout})
+                    trays = self._gen.collect_trays_from_layout(ln)
+                    for node, tray_cfg in trays:
+                        if tray_cfg.get("span", 1) > (active - lv_idx):
+                            tray_px = QtCore.QRectF(
+                                ox + node.x * scale,
+                                oy + node.y * scale,
+                                max(node.w * scale, 1),
+                                max(node.d * scale, 1),
+                            )
+                            p.save()
+                            p.setPen(QtGui.QPen(
+                                QtGui.QColor(180, 120, 60), 1.5, Qt.DashLine))
+                            p.setBrush(QtGui.QColor(80, 60, 30, 140))
+                            p.drawRect(tray_px)
+                            p.setFont(QtGui.QFont("Arial", 7))
+                            p.setPen(QtGui.QColor(220, 170, 90))
+                            p.drawText(tray_px, Qt.AlignCenter | Qt.TextWordWrap,
+                                       f"\u2193 {tray_cfg.get('name', 'Tray')}\n(L{lv_idx + 1})")
+                            p.restore()
+                except Exception:
+                    pass
+
         p.end()
 
     def _draw_layout_node(self, p, node, config_node, scale, ox, oy):
@@ -704,6 +737,147 @@ class LayoutCanvas(QtWidgets.QWidget):
         self.update()
 
 
+# ── Level strip widget ────────────────────────────────────────────────────────
+
+class LevelStripWidget(QtWidgets.QWidget):
+    """Vertical strip showing levels as stacked isometric slabs.
+
+    Level 0 at the bottom, level N-1 at the top (matches physical box).
+    Each slab height is proportional to its resolved mm height.
+    The active level is filled; others are outline only.
+    """
+    level_clicked = QtCore.Signal(int)
+
+    _SKEW     = 10   # px: horizontal shift for isometric top face
+    _FRONT_H  = 5    # px: fixed height of the front-face strip
+    _GAP      = 5    # px: gap between slabs
+    _MARGIN_V = 8    # px: top/bottom margin
+    _MIN_TOP  = 6    # px: minimum top-face height
+
+    _COL_BG        = QtGui.QColor(30,  30,  42)
+    _COL_SEL_TOP   = QtGui.QColor(90, 115, 185)
+    _COL_SEL_FRONT = QtGui.QColor(60,  80, 140)
+    _COL_SEL_BORD  = QtGui.QColor(140, 170, 255)
+    _COL_NRM_TOP   = QtGui.QColor(70,  70,  88)
+    _COL_NRM_FRONT = QtGui.QColor(48,  48,  62)
+    _COL_NRM_BORD  = QtGui.QColor(105, 105, 125)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._levels = []   # resolved float heights
+        self._active = 0
+        self._hits   = []   # [(level_idx, y_top, y_bot)]
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+
+    def set_data(self, levels, active):
+        self._levels = levels
+        self._active = active
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.fillRect(self.rect(), self._COL_BG)
+
+        n = len(self._levels)
+        if not n:
+            p.end()
+            return
+
+        W        = self.width()
+        skew     = self._SKEW
+        front_h  = self._FRONT_H
+        gap      = self._GAP
+        mv       = self._MARGIN_V
+        H        = self.height()
+
+        # Total px available for the proportional top faces
+        fixed    = n * front_h + (n - 1) * gap + 2 * mv
+        avail    = max(n * self._MIN_TOP, H - fixed)
+        total_mm = max(sum(self._levels), 1.0)
+
+        self._hits = []
+
+        # Build top-face heights (proportional)
+        top_hs = [max(self._MIN_TOP, int(avail * lh / total_mm))
+                  for lh in self._levels]
+
+        # Draw from bottom (idx=0) up; track y from bottom of widget
+        y = H - mv   # bottom edge of slab 0
+
+        for idx in range(n):
+            th  = top_hs[idx]
+            sel = (idx == self._active)
+
+            # y coordinates
+            y_fb = y              # front face bottom
+            y_ft = y - front_h   # front face top = top face bottom
+            y_tt = y_ft - th     # top face top
+
+            # Front face: rectangle (left-aligned, narrower by skew on right)
+            front = QtGui.QPolygonF([
+                QtCore.QPointF(0,        y_ft),
+                QtCore.QPointF(W - skew, y_ft),
+                QtCore.QPointF(W - skew, y_fb),
+                QtCore.QPointF(0,        y_fb),
+            ])
+            # Top face: parallelogram shifted right by skew at the top
+            top = QtGui.QPolygonF([
+                QtCore.QPointF(skew,     y_tt),
+                QtCore.QPointF(W - 1,    y_tt),
+                QtCore.QPointF(W - skew, y_ft),
+                QtCore.QPointF(0,        y_ft),
+            ])
+            # Right side face: thin strip connecting top-right to front-right
+            right = QtGui.QPolygonF([
+                QtCore.QPointF(W - 1,    y_tt),
+                QtCore.QPointF(W - 1,    y_tt + front_h),
+                QtCore.QPointF(W - skew, y_fb),
+                QtCore.QPointF(W - skew, y_ft),
+            ])
+
+            if sel:
+                p.setPen(Qt.NoPen)
+                p.setBrush(self._COL_SEL_TOP);   p.drawPolygon(top)
+                p.setBrush(self._COL_SEL_FRONT); p.drawPolygon(front)
+                p.setBrush(self._COL_SEL_FRONT.darker(115)); p.drawPolygon(right)
+                p.setPen(QtGui.QPen(self._COL_SEL_BORD, 1.5))
+            else:
+                p.setPen(Qt.NoPen)
+                p.setBrush(self._COL_NRM_TOP);   p.drawPolygon(top)
+                p.setBrush(self._COL_NRM_FRONT); p.drawPolygon(front)
+                p.setBrush(self._COL_NRM_FRONT.darker(115)); p.drawPolygon(right)
+                p.setPen(QtGui.QPen(self._COL_NRM_BORD, 1))
+
+            p.setBrush(Qt.NoBrush)
+            p.drawPolygon(top)
+            p.drawPolygon(front)
+            p.drawPolygon(right)
+
+            # Label on top face if there's room
+            if th >= 12:
+                lbl_color = (QtGui.QColor(220, 235, 255) if sel
+                             else QtGui.QColor(160, 160, 180))
+                p.setPen(lbl_color)
+                p.setFont(QtGui.QFont("Arial", 7))
+                lbl_rect = QtCore.QRectF(skew / 2, y_tt, W - skew, th)
+                p.drawText(lbl_rect, Qt.AlignCenter, f"L{idx + 1}")
+
+            self._hits.append((idx, y_tt, y_fb))
+            y = y_tt - gap
+
+        p.end()
+
+    def mousePressEvent(self, event):
+        py = event.pos().y()
+        # Iterate top-to-bottom so topmost slab wins on overlap
+        for idx, y_top, y_bot in reversed(self._hits):
+            if y_top <= py <= y_bot:
+                self.level_clicked.emit(idx)
+                return
+
+
 # ── Main Dialog ───────────────────────────────────────────────────────────────
 
 class InsertDesigner(QtWidgets.QDialog):
@@ -896,21 +1070,47 @@ class InsertDesigner(QtWidgets.QDialog):
         self.canvas.selection_changed.connect(self._on_selection)
         self.canvas.divider_released.connect(self._snapshot)
 
-        # Canvas container: canvas + level selector strip below
+        # Canvas container: canvas | level selector strip on right side
         canvas_container = QtWidgets.QWidget()
-        _cv = QtWidgets.QVBoxLayout(canvas_container)
+        _cv = QtWidgets.QHBoxLayout(canvas_container)
         _cv.setContentsMargins(0, 0, 0, 0)
         _cv.setSpacing(0)
         _cv.addWidget(self.canvas, stretch=1)
 
-        # Level strip placeholder — built by _refresh_level_strip()
+        # Level strip: isometric slab painter + +/- buttons at bottom
         self._level_strip_widget = QtWidgets.QWidget()
-        self._level_strip_widget.setFixedHeight(34)
+        self._level_strip_widget.setFixedWidth(80)
         self._level_strip_widget.setStyleSheet(
-            "background: #1e1e2a; border-top: 1px solid #444;")
-        self._level_strip_hbox = QtWidgets.QHBoxLayout(self._level_strip_widget)
-        self._level_strip_hbox.setContentsMargins(6, 2, 6, 2)
-        self._level_strip_hbox.setSpacing(4)
+            "background: #1e1e2a; border-left: 1px solid #444;")
+        _lsv = QtWidgets.QVBoxLayout(self._level_strip_widget)
+        _lsv.setContentsMargins(4, 4, 4, 4)
+        _lsv.setSpacing(2)
+
+        self._level_strip_canvas = LevelStripWidget()
+        self._level_strip_canvas.level_clicked.connect(self._switch_level)
+        _lsv.addWidget(self._level_strip_canvas, stretch=1)
+
+        _ctrl = QtWidgets.QWidget()
+        _ctrl.setFixedHeight(26)
+        _ctrl_hbox = QtWidgets.QHBoxLayout(_ctrl)
+        _ctrl_hbox.setContentsMargins(0, 0, 0, 0)
+        _ctrl_hbox.setSpacing(2)
+        _btn_add = QtWidgets.QPushButton("+")
+        _btn_add.setToolTip("Add level")
+        _btn_add.setStyleSheet(
+            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }")
+        _btn_add.clicked.connect(self._add_level)
+        _ctrl_hbox.addWidget(_btn_add)
+        self._level_strip_rem_btn = QtWidgets.QPushButton("−")
+        self._level_strip_rem_btn.setToolTip("Remove current level")
+        self._level_strip_rem_btn.setEnabled(False)
+        self._level_strip_rem_btn.setStyleSheet(
+            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }"
+            "QPushButton:disabled { color: #555; }")
+        self._level_strip_rem_btn.clicked.connect(self._remove_level)
+        _ctrl_hbox.addWidget(self._level_strip_rem_btn)
+        _lsv.addWidget(_ctrl)
+
         _cv.addWidget(self._level_strip_widget)
 
         splitter.addWidget(canvas_container)
@@ -985,8 +1185,11 @@ class InsertDesigner(QtWidgets.QDialog):
         self.box_level_lbl.setStyleSheet("color: #999; font-style: italic;")
         self.box_level_h     = _dspin(1, 9999, step=5)
         self.box_level_h_auto = QtWidgets.QCheckBox("Auto (fill remaining height)")
+        self.box_level_remaining = QtWidgets.QLabel("")
+        self.box_level_remaining.setStyleSheet("color: #888; font-style: italic;")
         f.addRow("",              self.box_level_lbl)
         f.addRow("Level height:", _hbox(self.box_level_h, self.box_level_h_auto))
+        f.addRow("",              self.box_level_remaining)
 
         f.addRow(_section_label("Defaults"))
         f.addRow("Wall thickness:",  self.box_def_wall)
@@ -1051,6 +1254,10 @@ class InsertDesigner(QtWidgets.QDialog):
 
         self.tr_name       = QtWidgets.QLineEdit()
         self.tr_h          = _dspin(5, 9999)
+        self.tr_span       = QtWidgets.QSpinBox()
+        self.tr_span.setMinimum(1)
+        self.tr_span.setMaximum(10)
+        self.tr_span.setToolTip("Number of levels this tray spans upward")
         self.tr_size_lbl   = QtWidgets.QLabel()
         self.tr_size_lbl.setStyleSheet("color: #666; font-style: italic;")
         self.tr_wall       = _dspin(0.5, 20, step=0.5)
@@ -1075,6 +1282,7 @@ class InsertDesigner(QtWidgets.QDialog):
         f.addRow("Name:",          self.tr_name)
         f.addRow(_section_label("Dimensions"))
         f.addRow("Height (Z):",    self.tr_h)
+        f.addRow("Span (levels):", self.tr_span)
         f.addRow("Computed size:", self.tr_size_lbl)
         f.addRow(_section_label("Wall, floor & dividers"))
         f.addRow("Wall thickness:", _hbox(self.tr_wall, self.tr_wall_dflt))
@@ -1089,6 +1297,7 @@ class InsertDesigner(QtWidgets.QDialog):
 
         self.tr_name.textChanged.connect(lambda v: self._tr("name", v))
         self.tr_h.valueChanged.connect(lambda v: self._tr("height", v))
+        self.tr_span.valueChanged.connect(lambda v: self._tr("span", v))
         self.tr_wall.valueChanged.connect(lambda v: self._tr("wall_thickness", v))
         self.tr_wall_dflt.toggled.connect(
             lambda c: self._tr_use_default("wall_thickness", c, self.tr_wall))
@@ -1470,6 +1679,11 @@ class InsertDesigner(QtWidgets.QDialog):
         self.tr_f_base_type.setCurrentText(
             fillet.get("base_type", df.get("base_type", "fillet")))
 
+        n_levels = len(self.config.get("levels", [{"height": None}]))
+        max_span = max(1, n_levels - self.canvas._active_level)
+        self.tr_span.setMaximum(max_span)
+        self.tr_span.setValue(tray.get("span", 1))
+
     def _load_comp_panel(self, comp):
         self.comp_label.setText(comp.get("label", ""))
 
@@ -1571,50 +1785,11 @@ class InsertDesigner(QtWidgets.QDialog):
             levels[idx]["layout"] = v
 
     def _refresh_level_strip(self):
-        """Rebuild the level selector buttons."""
-        lay = self._level_strip_hbox
-        while lay.count():
-            item = lay.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
-        levels   = self.config.get("levels", [])
+        """Update the isometric level strip painter and +/- button state."""
         resolved = self._resolve_level_heights()
-        for idx, lh in enumerate(resolved):
-            lv        = levels[idx] if idx < len(levels) else {}
-            auto_lbl  = "auto" if lv.get("height") is None else f"{lh:.0f} mm"
-            btn = QtWidgets.QPushButton(f"Level {idx + 1}  ({auto_lbl})")
-            btn.setCheckable(True)
-            btn.setChecked(idx == self.canvas._active_level)
-            btn.setFixedHeight(26)
-            btn.setStyleSheet(
-                "QPushButton { padding: 2px 12px; border-radius: 3px;"
-                "  background: #3a3a4a; color: #bbb; border: 1px solid #555; }"
-                "QPushButton:checked { background: #4a5a8e; color: white;"
-                "  font-weight: bold; border: 1px solid #7a9ae0; }")
-            btn.clicked.connect(lambda _c, i=idx: self._switch_level(i))
-            lay.addWidget(btn)
-
-        lay.addStretch()
-
-        btn_add = QtWidgets.QPushButton("+")
-        btn_add.setFixedSize(26, 26)
-        btn_add.setToolTip("Add level")
-        btn_add.setStyleSheet(
-            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }")
-        btn_add.clicked.connect(self._add_level)
-        lay.addWidget(btn_add)
-
-        btn_rem = QtWidgets.QPushButton("−")
-        btn_rem.setFixedSize(26, 26)
-        btn_rem.setToolTip("Remove current level")
-        btn_rem.setEnabled(len(levels) > 1)
-        btn_rem.setStyleSheet(
-            "QPushButton { background: #3a3a4a; border: 1px solid #555; border-radius: 3px; }"
-            "QPushButton:disabled { color: #555; }")
-        btn_rem.clicked.connect(self._remove_level)
-        lay.addWidget(btn_rem)
+        self._level_strip_canvas.set_data(resolved, self.canvas._active_level)
+        n = len(self.config.get("levels", []))
+        self._level_strip_rem_btn.setEnabled(n > 1)
 
     def _update_level_panel(self):
         """Sync the box panel level-height fields to the currently active level."""
@@ -1634,6 +1809,20 @@ class InsertDesigner(QtWidgets.QDialog):
                 self.box_level_h.setValue(lv.get("height") if not auto else rh)
         finally:
             self._loading = False
+
+        box_h     = self.config.get("box_height", 70.0)
+        fixed_sum = sum(lv.get("height") or 0 for lv in levels if lv.get("height") is not None)
+        flex_cnt  = sum(1 for lv in levels if lv.get("height") is None)
+        if flex_cnt > 0:
+            remaining = max(0.0, box_h - fixed_sum)
+            self.box_level_remaining.setStyleSheet("color: #888; font-style: italic;")
+            self.box_level_remaining.setText(
+                f"{remaining:.0f} mm split by {flex_cnt} auto level(s)")
+        else:
+            over = fixed_sum > box_h
+            clr  = "#e07070" if over else "#888"
+            self.box_level_remaining.setStyleSheet(f"color: {clr}; font-style: italic;")
+            self.box_level_remaining.setText(f"{fixed_sum:.0f} / {box_h:.0f} mm used")
 
     def _switch_level(self, idx):
         """Activate a different level: deselects current selection, refreshes canvas."""
@@ -1688,11 +1877,24 @@ class InsertDesigner(QtWidgets.QDialog):
             return
         levels = self.config.get("levels", [])
         idx    = self.canvas._active_level
-        if 0 <= idx < len(levels) and not levels[idx].get("height") is None:
-            self._snapshot_if_new_edit()
-            levels[idx]["height"] = v
-            self._refresh_level_strip()
-            self.canvas.refresh()
+        if not (0 <= idx < len(levels)) or levels[idx].get("height") is None:
+            return
+        # Clamp: fixed levels must not exceed box_height in total
+        box_h       = self.config.get("box_height", 70.0)
+        other_fixed = sum(lv.get("height") or 0
+                          for i, lv in enumerate(levels)
+                          if i != idx and lv.get("height") is not None)
+        v = min(v, max(1.0, box_h - other_fixed))
+        self._snapshot_if_new_edit()
+        levels[idx]["height"] = v
+        self._loading = True
+        try:
+            self.box_level_h.setValue(v)
+        finally:
+            self._loading = False
+        self._update_level_panel()
+        self._refresh_level_strip()
+        self.canvas.refresh()
 
     def _level_h_auto_toggle(self, checked):
         if self._loading:
@@ -2278,7 +2480,12 @@ class InsertDesigner(QtWidgets.QDialog):
                                         defaults.get("wall_thickness", 2.0))
                 inner_w = max(node.w - 2 * wall_t, 1.0)
                 inner_d = max(node.d - 2 * wall_t, 1.0)
-                tray_h  = tray_cfg.get("height", lv_h)
+                span   = tray_cfg.get("span", 1)
+                if span > 1:
+                    tray_h = sum(all_levels[i][1]
+                                 for i in range(lv_idx, min(lv_idx + span, len(all_levels))))
+                else:
+                    tray_h = tray_cfg.get("height", lv_h)
                 resolved_comps = self._gen.resolve_tray_layout(
                     tray_cfg, inner_w, inner_d, defaults)
 
